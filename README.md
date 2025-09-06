@@ -1,5 +1,5 @@
 # NuggiesAI
-Discord bot using the Gemini API for AI functionality, and other Personal discord management tools
+Personal Discord Bot of Wisteria Princess with special features designed for the Northern Lights FC in FFXIV
 
 Commands: \
 /ask #asking a Gemini API a Question \
