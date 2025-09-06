@@ -4,9 +4,9 @@ use serenity::{
     model::{
         channel::Message,
         gateway::Ready,
-        id::GuildId, // Re-added
+        id::GuildId,
         application::interaction::{Interaction, InteractionResponseType},
-        guild::Role, // Re-added
+        guild::Role,
         channel::Reaction,
     },
     prelude::GatewayIntents,
@@ -21,13 +21,85 @@ use std::collections::HashMap;
 
 struct Handler;
 
+// This helper function will handle both adding and removing roles based on reactions.
+async fn handle_reaction_role(ctx: &Context, reaction: &Reaction, add: bool) {
+    // Ignore reactions from bots
+    if reaction.user(&ctx.http).await.map_or(true, |u| u.bot) {
+        return;
+    }
+
+    // Get the message that was reacted to
+    if let Ok(msg) = reaction.message(&ctx.http).await {
+        // Only process reactions on messages sent by our bot
+        if !msg.author.bot {
+            return;
+        }
+
+        let guild_id = match reaction.guild_id {
+            Some(id) => id,
+            None => return,
+        };
+        let user_id = match reaction.user_id {
+            Some(id) => id,
+            None => return,
+        };
+        let mut member = match guild_id.member(&ctx.http, user_id).await {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("[ERROR] Could not fetch member: {:?}", e);
+                return;
+            }
+        };
+
+        // Get the name of the custom emoji used
+        let emoji_name = if let serenity::model::channel::ReactionType::Custom { name, .. } = &reaction.emoji {
+            name.as_deref().unwrap_or("")
+        } else {
+            ""
+        };
+
+        // Determine which role to assign based on the message content and emoji
+        let role_name_to_assign: Option<&str> = if msg.content.starts_with("Assign yourself Pronouns") {
+            let roles_map: HashMap<&str, &str> = [
+                ("justaboy", "he/him"), ("justagirl", "she/her"), ("pridejj", "they/them"),
+            ].iter().cloned().collect();
+            roles_map.get(emoji_name).copied()
+        } else if msg.content.contains("role for event notifications") && emoji_name == "danseparty" {
+            // This is the logic for the FC Events role
+            Some("FC Events")
+        } else {
+            None
+        };
+
+        if let Some(role_name) = role_name_to_assign {
+            println!("[REACTION] User '{}' reacted with '{}' for role '{}'.", member.user.name, emoji_name, role_name);
+            // Find the role on the server
+            if let Some(role) = guild_id.roles(&ctx.http).await.unwrap().values().find(|r| r.name == role_name) {
+                let action_result = if add {
+                    member.add_role(&ctx.http, role.id).await
+                } else {
+                    member.remove_role(&ctx.http, role.id).await
+                };
+
+                let action_str = if add { "Assigned" } else { "Removed" };
+                let action_str_fail = if add { "assign" } else { "remove" };
+
+                if action_result.is_ok() {
+                    println!("[SUCCESS] {} role '{}' {} '{}'.", action_str, role.name, if add {"to"} else {"from"}, member.user.name);
+                } else {
+                    eprintln!("[ERROR] Failed to {} role '{}' {} '{}'. Check permissions.", action_str_fail, role.name, if add {"to"} else {"from"}, member.user.name);
+                }
+            }
+        }
+    }
+}
+
+
 #[async_trait]
 impl EventHandler for Handler {
-    // MODIFIED: Prefixed 'ctx' with an underscore to silence the warning.
     async fn ready(&self, _ctx: Context, ready: Ready) {
         println!("[INFO] Bot is connected as {}", ready.user.name);
 
-        // Register global application commands
         let commands = serenity::model::application::command::Command::set_global_application_commands(&_ctx.http, |commands| {
             commands
                 .create_application_command(|command| {
@@ -87,6 +159,7 @@ impl EventHandler for Handler {
             return;
         }
 
+        // --- GENDER ROLE COMMAND ---
         if msg.author.id.0 == 241614046913101825 && msg.content == "assignrole:gender" {
             println!("[CMD] Triggered 'assignrole:gender' by authorized user.");
             let guild_id = msg.guild_id.unwrap();
@@ -140,6 +213,53 @@ impl EventHandler for Handler {
             let _ = msg.delete(&ctx.http).await;
             return;
         }
+        // --- FC EVENTS ROLE COMMAND ---
+        else if msg.author.id.0 == 241614046913101825 && msg.content == "assignrole:fcevents" {
+            println!("[CMD] Triggered 'assignrole:fcevents' by authorized user.");
+            let guild_id = msg.guild_id.unwrap();
+
+            let role_name = "FC Events";
+            let emoji_name = "danseparty";
+
+            // Ensure the role exists, or create it
+            if get_or_create_role(&ctx, guild_id, role_name).await.is_none() {
+                eprintln!("[ERROR] Failed to get or create role: '{}'. Aborting.", role_name);
+                return;
+            }
+
+            // Find the custom emoji on the server
+            let guild_emojis = match guild_id.emojis(&ctx.http).await {
+                Ok(emojis) => emojis,
+                Err(e) => {
+                    eprintln!("[ERROR] Could not fetch emojis for guild: {:?}. Aborting.", e);
+                    return;
+                }
+            };
+
+            if let Some(emoji) = guild_emojis.iter().find(|e| e.name == emoji_name) {
+                let message_content = format!(
+                    "React with {} to get the '{}' role for event notifications!",
+                    emoji, role_name
+                );
+
+                // Send the message and react to it
+                if let Ok(sent_message) = msg.channel_id.say(&ctx.http, &message_content).await {
+                    println!("[ACTION] Successfully sent role assignment message for FC Events.");
+                    if let Err(e) = sent_message.react(&ctx.http, emoji.clone()).await {
+                        eprintln!("[ERROR] Failed to react to the message: {:?}", e);
+                    }
+                } else {
+                    eprintln!("[ERROR] Failed to send role assignment message for FC Events.");
+                }
+            } else {
+                eprintln!("[ERROR] Could not find emoji ':{}:' on the server. Aborting.", emoji_name);
+                return;
+            }
+
+            // Delete the original command message
+            let _ = msg.delete(&ctx.http).await;
+            return;
+        }
 
         let lower_content = msg.content.to_lowercase();
         if lower_content.contains("istanbul") {
@@ -168,81 +288,16 @@ impl EventHandler for Handler {
         }
     }
 
+    // This calls the helper function
     async fn reaction_add(&self, ctx: Context, reaction: Reaction) {
-        if reaction.user(&ctx.http).await.map_or(true, |u| u.bot) {
-            return;
-        }
-
-        if let Ok(msg) = reaction.message(&ctx.http).await {
-            if msg.author.bot && msg.content.starts_with("Assign yourself Pronouns") {
-                let user = reaction.user(&ctx.http).await.unwrap();
-                println!("[REACTION] Add detected from user '{}'.", user.name);
-
-                let guild_id = reaction.guild_id.unwrap();
-                let mut member = guild_id.member(&ctx.http, user.id).await.unwrap();
-
-                let roles_map: HashMap<&str, &str> = [
-                    ("justaboy", "he/him"), ("justagirl", "she/her"), ("pridejj", "they/them"),
-                ].iter().cloned().collect();
-
-                let emoji_name = if let serenity::model::channel::ReactionType::Custom { name, .. } = &reaction.emoji {
-                    name.as_deref().unwrap_or("")
-                } else { "" };
-
-                if let Some(&role_name) = roles_map.get(emoji_name) {
-                    println!("[DEBUG] Emoji '{}' maps to role '{}'.", emoji_name, role_name);
-                    if let Some(role) = guild_id.roles(&ctx.http).await.unwrap().values().find(|r| r.name == role_name) {
-                        if member.add_role(&ctx.http, role.id).await.is_ok() {
-                            println!("[SUCCESS] Assigned role '{}' to '{}'.", role.name, member.user.name);
-                        } else {
-                            eprintln!("[ERROR] Failed to assign role '{}' to '{}'. Check permissions and hierarchy.", role.name, member.user.name);
-                        }
-                    }
-                } else {
-                    println!("[DEBUG] Reacted emoji '{}' does not map to a role.", emoji_name);
-                }
-            }
-        }
+        handle_reaction_role(&ctx, &reaction, true).await;
     }
 
+    // This calls the helper function
     async fn reaction_remove(&self, ctx: Context, reaction: Reaction) {
-        if reaction.user(&ctx.http).await.map_or(true, |u| u.bot) {
-            return;
-        }
-
-        if let Ok(msg) = reaction.message(&ctx.http).await {
-            if msg.author.bot && msg.content.starts_with("Assign yourself Pronouns") {
-                let user = reaction.user(&ctx.http).await.unwrap();
-                println!("[REACTION] Remove detected from user '{}'.", user.name);
-
-                let guild_id = reaction.guild_id.unwrap();
-                let mut member = guild_id.member(&ctx.http, user.id).await.unwrap();
-
-                let roles_map: HashMap<&str, &str> = [
-                    ("justaboy", "he/him"), ("justagirl", "she/her"), ("pridejj", "they/them"),
-                ].iter().cloned().collect();
-
-                let emoji_name = if let serenity::model::channel::ReactionType::Custom { name, .. } = &reaction.emoji {
-                    name.as_deref().unwrap_or("")
-                } else { "" };
-
-                if let Some(&role_name) = roles_map.get(emoji_name) {
-                    println!("[DEBUG] Emoji '{}' maps to role '{}'.", emoji_name, role_name);
-                    if let Some(role) = guild_id.roles(&ctx.http).await.unwrap().values().find(|r| r.name == role_name) {
-                        if member.remove_role(&ctx.http, role.id).await.is_ok() {
-                            println!("[SUCCESS] Removed role '{}' from '{}'.", role.name, member.user.name);
-                        } else {
-                            eprintln!("[ERROR] Failed to remove role '{}' from '{}'.", role.name, member.user.name);
-                        }
-                    }
-                } else {
-                    println!("[DEBUG] Removed emoji '{}' does not map to a role.", emoji_name);
-                }
-            }
-        }
+        handle_reaction_role(&ctx, &reaction, false).await;
     }
 
-    // MODIFIED: This function is now complete, which will fix the warnings.
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         if let Some(command) = interaction.application_command() {
             println!("[SLASH CMD] Received command: '/{}'.", command.data.name);
@@ -252,7 +307,6 @@ impl EventHandler for Handler {
             }).await;
 
             let user_id = command.user.id;
-            // Clone necessary data for the spawned task
             let command_name = command.data.name.clone();
             let ctx_clone = ctx.clone();
 
@@ -314,7 +368,6 @@ impl EventHandler for Handler {
     }
 }
 
-// MODIFIED helper function with added logging
 async fn get_or_create_role(ctx: &Context, guild_id: GuildId, role_name: &str) -> Option<Role> {
     let roles = guild_id.roles(&ctx.http).await.ok()?;
 
