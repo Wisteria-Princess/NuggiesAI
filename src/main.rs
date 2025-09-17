@@ -277,8 +277,7 @@ impl EventHandler for Handler {
             let gemini_api_key = data.get::<GeminiApiKey>().expect("Expected GeminiApiKey in TypeMap.").clone();
             let modified_prompt = format!(
                 "You are an Female AI assistant called 'Nuggies'.\
-                You have a somewhat friendly, nordic(mostly finnish), pagan, with a healthy dose of cute sarcasm, gothic and somewhat unhinged personality.\
-                limited emojis and dont Roleplay.\
+                 You have a somewhat friendly, norse nordic, slightly pagan, with a healthy dose of cute sarcasm, gothic and somewhat unhinged personality.\
                 Respond to the following message as Nuggies and keep the response at one or 2 sentences:\n\n{}",
                 &msg.content
             );
@@ -319,8 +318,7 @@ impl EventHandler for Handler {
                             let gemini_api_key = data.get::<GeminiApiKey>().unwrap().clone();
                             let prompt = format!(
                                 "You are an Female AI assistant called 'Nuggies'.\
-                                You have a somewhat friendly, nordic(mostly finnish), pagan, with a healthy dose of cute sarcasm, gothic and somewhat unhinged personality.\
-                                limited emojis and dont Roleplay.\
+                                You have a somewhat friendly, norse nordic, slightly pagan, with a healthy dose of cute sarcasm, gothic and somewhat unhinged personality.\
                                 Respond to the following message as Nuggies:\n\n{}",
                                 message_text
                             );
