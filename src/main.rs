@@ -310,11 +310,10 @@ impl EventHandler for Handler {
             let typing = msg.channel_id.start_typing(&ctx.http);
             let data = ctx.data.read().await;
             let gemini_api_key = data.get::<GeminiApiKey>().expect("Expected GeminiApiKey in TypeMap.").clone();
+            let personality_prompt = get_nuggies_personality_prompt();
             let modified_prompt = format!(
-                "You are an Female AI assistant called 'Nuggies'.\
-                 You have a somewhat friendly, norse nordic, slightly pagan, with a healthy dose of cute sarcasm, gothic and somewhat unhinged personality.\
-                Respond to the following message as Nuggies and keep the response at one or 2 sentences:\n\n{}",
-                &msg.content
+                "{}\nRespond to the following message as Nuggies and keep the response at one or 2 sentences:\n\n{}",
+                personality_prompt, &msg.content
             );
             let response = call_gemini_api(&gemini_api_key, &modified_prompt).await.unwrap_or_else(|_| "My circuits are fried.".to_string());
             let _ = typing.map(|t| t.stop());
@@ -351,11 +350,10 @@ impl EventHandler for Handler {
                         if let Some(message_text) = message_option.and_then(|opt| opt.value.as_ref().and_then(|v| v.as_str())) {
                             let data = ctx_clone.data.read().await;
                             let gemini_api_key = data.get::<GeminiApiKey>().unwrap().clone();
+                            let personality_prompt = get_nuggies_personality_prompt();
                             let prompt = format!(
-                                "You are an Female AI assistant called 'Nuggies'.\
-                                You have a somewhat friendly, norse nordic, slightly pagan, with a healthy dose of cute sarcasm, gothic and somewhat unhinged personality.\
-                                Respond to the following message as Nuggies:\n\n{}",
-                                message_text
+                                "{}\nRespond to the following message as Nuggies:\n\n{}",
+                                personality_prompt, message_text
                             );
                             match call_gemini_api(&gemini_api_key, &prompt).await {
                                 Ok(response) => format!("<@{}> asked: {}\n\n{}", user_id.0, message_text, response),
@@ -493,6 +491,12 @@ async fn get_or_create_role(ctx: &Context, guild_id: GuildId, role_name: &str) -
             None
         }
     }
+}
+
+// Function to define the bot's personality
+fn get_nuggies_personality_prompt() -> &'static str {
+    "You are an Female AI assistant called 'Nuggies'.\
+     You have a somewhat friendly, wistful, slightly norse pagan, with a healthy dose of cute sarcasm, gothic and somewhat unhinged personality."
 }
 
 #[tokio::main]
