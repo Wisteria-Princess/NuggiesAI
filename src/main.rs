@@ -549,7 +549,7 @@ fn get_nuggies_personality_prompt() -> &'static str {
 
 #[tokio::main]
 async fn main() {
-    dotenv::dotenv().expect("Failed to load .env file");
+    dotenv::dotenv().ok();
     let discord_token = env::var("DISCORD_TOKEN").expect("Expected DISCORD_TOKEN in the environment");
     let gemini_api_key = env::var("GEMINI_API_KEY").expect("Expected GEMINI_API_KEY in the environment");
     let tenor_api_key = env::var("TENOR_API_KEY").expect("Expected TENOR_API_KEY in the environment");
