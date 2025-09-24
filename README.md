@@ -6,7 +6,7 @@ The official repository can be found at: [NuggiesAI](https://github.com/Wisteria
 
 ## Features
 
-- **AI Chat**: Chat directly with Nuggies using the `/nuggies` command or by mentioning its name in a message. The AI is powered by Google's Gemini 1.5 Flash model and has a unique, customizable personality (currently a slightly unhinged, sarcastic, Norse pagan goth).
+- **AI Chat**: Chat directly with Nuggies using the `/nuggies` command or by mentioning its name in a message. The AI is powered by Google's Gemini 1.5 Flash model and has a unique, customizable personality.
 - **Currency System**: A simple and fun server economy centered around "nuggets."
   - `/daily`: Claim a random amount of nuggets once per day.
   - `/nuggetbox`: Check your current balance.
