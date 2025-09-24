@@ -6,7 +6,7 @@ The official repository can be found at: [https://github.com/Wisteria-Princess/N
 
 ## Features
 
-- **AI Chat**: Chat directly with Nuggies using the `/nuggies` command or by mentioning its name in a message. The AI is powered by Google's Gemini model and has a unique, customizable personality (currently a slightly unhinged, sarcastic, Norse pagan goth).
+- **AI Chat**: Chat directly with Nuggies using the `/nuggies` command or by mentioning its name in a message. The AI is powered by Google's Gemini model and has a unique, customizable personality.
 - **Persistent Currency System**: A simple and fun server economy centered around "nuggets." All data is stored in a cloud database, so user balances are always saved.
 - **Reaction Roles**: Allows users to self-assign roles by reacting to specific messages, set up by a server admin.
 - **Utility Commands**: Includes a `/fox` command for random GIFs and a `/translate` command for translating text.
