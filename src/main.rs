@@ -18,8 +18,43 @@ use rand::seq::SliceRandom;
 use serde_json::Value;
 use std::path::Path;
 use std::collections::HashMap;
+use rusqlite::{Connection, Result, params};
+use chrono::{Utc, DateTime, NaiveDateTime};
+use chrono::TimeZone;
+use chrono_tz::Tz;
+use chrono_tz::Europe::Berlin;
+use rand::Rng;
+use tokio::sync::Mutex;
+
 
 struct Handler;
+
+// Database struct and implementation
+struct Database {
+    conn: Mutex<Connection>,
+}
+
+impl Database {
+    fn new() -> Self {
+        let conn = Connection::open("nuggets.db").expect("Failed to open database");
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                nuggets INTEGER NOT NULL DEFAULT 0,
+                last_daily TEXT
+            )",
+            [],
+        ).expect("Failed to create table");
+        Database { conn: Mutex::new(conn) }
+    }
+}
+
+// TypeMapKey for the database
+struct DatabaseKey;
+impl serenity::prelude::TypeMapKey for DatabaseKey {
+    type Value = Arc<Database>;
+}
+
 
 // This helper function will handle both adding and removing roles based on reactions.
 async fn handle_reaction_role(ctx: &Context, reaction: &Reaction, add: bool) {
@@ -143,6 +178,12 @@ impl EventHandler for Handler {
                                 .kind(serenity::model::application::command::CommandOptionType::String)
                                 .required(true)
                         })
+                })
+                .create_application_command(|command| {
+                    command.name("daily").description("Claim your daily nuggets")
+                })
+                .create_application_command(|command| {
+                    command.name("nuggetbox").description("Check your personal amount of nuggets")
                 })
         })
             .await;
@@ -353,6 +394,79 @@ impl EventHandler for Handler {
                         let tenor_api_key = data.get::<TenorApiKey>().unwrap().clone();
                         get_random_fox_gif(&tenor_api_key).await.unwrap_or_else(|_| "https://media.tenor.com/YxT1w3VX5BAAAAAM/fox-dance.gif".to_string())
                     },
+                    "daily" => {
+                        let data = ctx_clone.data.read().await;
+                        let db = data.get::<DatabaseKey>().unwrap().clone();
+                        let conn = db.conn.lock().await; // Lock the connection
+                        let user_id_i64 = *user_id.as_u64() as i64;
+                        let now: DateTime<Tz> = Utc::now().with_timezone(&Berlin);
+
+                        let mut stmt = conn.prepare("SELECT last_daily, nuggets FROM users WHERE user_id = ?1").unwrap();
+                        let res: Result<(Option<String>, i64)> = stmt.query_row(params![user_id_i64], |row| {
+                            Ok((row.get(0)?, row.get(1)?))
+                        });
+
+                        match res {
+                            Ok((last_daily_str_opt, nuggets)) => {
+                                let mut eligible = true;
+                                if let Some(last_daily_str) = last_daily_str_opt {
+                                    if let Ok(last_daily) = NaiveDateTime::parse_from_str(&last_daily_str, "%Y-%m-%d %H:%M:%S") {
+                                        let last_daily_tz = Berlin.from_local_datetime(&last_daily).unwrap();
+                                        if last_daily_tz.date_naive() == now.date_naive() {
+                                            eligible = false;
+                                        }
+                                    }
+                                }
+
+                                if eligible {
+                                    let daily_nuggets = rand::thread_rng().gen_range(1..=10);
+                                    let new_total = nuggets + daily_nuggets;
+                                    conn.execute(
+                                        "INSERT INTO users (user_id, nuggets, last_daily) VALUES (?1, ?2, ?3)
+                                         ON CONFLICT(user_id) DO UPDATE SET nuggets = excluded.nuggets, last_daily = excluded.last_daily",
+                                        params![user_id_i64, new_total, now.naive_local().format("%Y-%m-%d %H:%M:%S").to_string()],
+                                    ).unwrap();
+                                    format!("You received {} nuggets! You now have a total of {} nuggets.", daily_nuggets, new_total)
+                                } else {
+                                    "You have already claimed your daily nuggets. Please try again tomorrow.".to_string()
+                                }
+                            },
+                            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                                let daily_nuggets = rand::thread_rng().gen_range(1..=10);
+                                conn.execute(
+                                    "INSERT INTO users (user_id, nuggets, last_daily) VALUES (?1, ?2, ?3)",
+                                    params![user_id_i64, daily_nuggets, now.naive_local().format("%Y-%m-%d %H:%M:%S").to_string()],
+                                ).unwrap();
+                                format!("Welcome! You received your first {} nuggets!", daily_nuggets)
+                            },
+                            Err(e) => {
+                                eprintln!("[ERROR] Database error: {:?}", e);
+                                "There was an error accessing the database.".to_string()
+                            }
+                        }
+                    },
+                    "nuggetbox" => {
+                        let data = ctx_clone.data.read().await;
+                        let db = data.get::<DatabaseKey>().unwrap().clone();
+                        let conn = db.conn.lock().await;
+                        let user_id_i64 = *user_id.as_u64() as i64;
+
+                        let mut stmt = conn.prepare("SELECT nuggets FROM users WHERE user_id = ?1").unwrap();
+                        let res: Result<i64> = stmt.query_row(params![user_id_i64], |row| row.get(0));
+
+                        match res {
+                            Ok(nuggets) => {
+                                format!("You have {} nuggets in your nuggetbox.", nuggets)
+                            },
+                            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                                "You don't have a nuggetbox yet! Use `/daily` to get your first nuggets.".to_string()
+                            },
+                            Err(e) => {
+                                eprintln!("[ERROR] Database error on /nuggetbox: {:?}", e);
+                                "There was an error checking your nuggetbox.".to_string()
+                            }
+                        }
+                    },
                     _ => "Unknown command.".to_string(),
                 };
 
@@ -409,6 +523,7 @@ async fn main() {
         let mut data = client.data.write().await;
         data.insert::<GeminiApiKey>(Arc::new(gemini_api_key));
         data.insert::<TenorApiKey>(Arc::new(tenor_api_key));
+        data.insert::<DatabaseKey>(Arc::new(Database::new()));
     }
 
     if let Err(why) = client.start().await {
