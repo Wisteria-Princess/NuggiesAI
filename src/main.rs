@@ -159,12 +159,6 @@ impl EventHandler for Handler {
                     command.name("fox").description("Get a random fox GIF")
                 })
                 .create_application_command(|command| {
-                    command.name("forps").description("Get a random fox GIF")
-                })
-                .create_application_command(|command| {
-                    command.name("fops").description("Get a random fox GIF")
-                })
-                .create_application_command(|command| {
                     command.name("translate").description("Translate text to a specified language")
                         .create_option(|option| {
                             option.name("language")
@@ -389,7 +383,7 @@ impl EventHandler for Handler {
                             call_gemini_api(&gemini_api_key, &prompt).await.unwrap_or_else(|_| "Sorry, I couldn't translate that.".to_string())
                         } else { "Please provide both a language and text.".to_string() }
                     },
-                    "fox" | "forps" | "fops" => {
+                    "fox" => {
                         let data = ctx_clone.data.read().await;
                         let tenor_api_key = data.get::<TenorApiKey>().unwrap().clone();
                         get_random_fox_gif(&tenor_api_key).await.unwrap_or_else(|_| "https://media.tenor.com/YxT1w3VX5BAAAAAM/fox-dance.gif".to_string())
