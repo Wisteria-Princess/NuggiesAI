@@ -34,7 +34,7 @@ struct Database {
 impl Database {
     async fn new() -> Self {
         let db_url = env::var("DATABASE_URL").expect("Expected DATABASE_URL in the environment");
-        let manager = PostgresConnectionManager::new_from_stringlike(&db_url, NoTls)
+        let manager = PostgresConnectionManager::new_from_stringlike(db_url, NoTls)
             .expect("Failed to create Postgres manager");
         let pool = Arc::new(Pool::builder()
             .build(manager)
@@ -441,7 +441,8 @@ impl EventHandler for Handler {
                                     _ => 1,
                                 };
                                 let new_total = nuggets - 5 + winnings;
-                                conn.execute("UPDATE users SET nuggets = $1 WHERE user_id = $2", &[&new_total, &user_id_i64]).await.unwrap();
+                                let params: &[&(dyn ToSql + Sync)] = &[&new_total, &user_id_i64];
+                                conn.execute("UPDATE users SET nuggets = $1 WHERE user_id = $2", params).await.unwrap();
 
                                 let witty_responses = [
                                     "Don't spend it all in one place... or do, I'm not your mother.",
@@ -510,7 +511,6 @@ async fn main() {
     let discord_token = env::var("DISCORD_TOKEN").expect("Expected DISCORD_TOKEN in the environment");
     let gemini_api_key = env::var("GEMINI_API_KEY").expect("Expected GEMINI_API_KEY in the environment");
     let tenor_api_key = env::var("TENOR_API_KEY").expect("Expected TENOR_API_KEY in the environment");
-    let db_url = env::var("DATABASE_URL").expect("Expected DATABASE_URL in the environment");
 
     let intents = GatewayIntents::non_privileged()
         | GatewayIntents::MESSAGE_CONTENT
