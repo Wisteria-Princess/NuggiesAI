@@ -45,7 +45,7 @@ Follow these steps to run your own instance of the Nuggies AI bot.
 ### 1. Clone the Repository
 
 ```sh
-git clone https://your-repository-url/discord-gemini-bot.git
+git clone https://github.com/Wisteria-Princess/NuggiesAI.git
 cd discord-gemini-bot
 ```
 
