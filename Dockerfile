@@ -11,8 +11,8 @@ COPY . .
 RUN cargo build --release
 
 # --- Final Stage ---
-# Use a smaller, more secure base image for the final container
-FROM debian:buster-slim
+# Use a modern, supported, and secure base image (Debian 12 "Bookworm")
+FROM debian:bookworm-slim
 
 # Install the OpenSSL runtime library, which is required by reqwest for HTTPS.
 # We also clean up the apt cache to keep the image small.
