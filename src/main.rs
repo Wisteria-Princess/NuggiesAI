@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use chrono::{Utc, NaiveDate};
 use chrono_tz::Europe::Berlin;
 use rand::Rng;
-use tokio_postgres::NoTls;
+use tokio_postgres::{NoTls, types::ToSql};
 use bb8::Pool;
 use bb8_postgres::PostgresConnectionManager;
 
@@ -41,7 +41,6 @@ impl Database {
             .await
             .expect("Failed to create database pool"));
 
-        // Use a scope to ensure `conn` is dropped before `pool` is moved
         {
             let conn = pool.get().await.expect("Failed to get connection from pool");
             conn.execute(
@@ -52,7 +51,7 @@ impl Database {
                 )",
                 &[],
             ).await.expect("Failed to create users table");
-        } // conn is dropped here, releasing the borrow
+        }
 
         Database { pool }
     }
@@ -387,7 +386,8 @@ impl EventHandler for Handler {
                         let user_id_i64 = *user_id.as_u64() as i64;
                         let today = Utc::now().with_timezone(&Berlin).date_naive();
 
-                        let row_opt = conn.query_one("SELECT nuggets, last_daily FROM users WHERE user_id = $1", &[&user_id_i64]).await.ok();
+                        let params: &[&(dyn ToSql + Sync)] = &[&user_id_i64];
+                        let row_opt = conn.query_one("SELECT nuggets, last_daily FROM users WHERE user_id = $1", params).await.ok();
 
                         if let Some(row) = row_opt {
                             let nuggets: i64 = row.get(0);
@@ -398,12 +398,14 @@ impl EventHandler for Handler {
                             } else {
                                 let daily_nuggets: i64 = rand::thread_rng().gen_range(1..=15);
                                 let new_total = nuggets + daily_nuggets;
-                                conn.execute("UPDATE users SET nuggets = $1, last_daily = $2 WHERE user_id = $3", &[&new_total, &today, &user_id_i64]).await.unwrap();
+                                let update_params: &[&(dyn ToSql + Sync)] = &[&new_total, &today, &user_id_i64];
+                                conn.execute("UPDATE users SET nuggets = $1, last_daily = $2 WHERE user_id = $3", update_params).await.unwrap();
                                 format!("You received {} nuggets! You now have a total of {} nuggets.", daily_nuggets, new_total)
                             }
                         } else {
                             let daily_nuggets: i64 = rand::thread_rng().gen_range(1..=15);
-                            conn.execute("INSERT INTO users (user_id, nuggets, last_daily) VALUES ($1, $2, $3)", &[&user_id_i64, &daily_nuggets, &today]).await.unwrap();
+                            let insert_params: &[&(dyn ToSql + Sync)] = &[&user_id_i64, &daily_nuggets, &today];
+                            conn.execute("INSERT INTO users (user_id, nuggets, last_daily) VALUES ($1, $2, $3)", insert_params).await.unwrap();
                             format!("Welcome! You received your first {} nuggets!", daily_nuggets)
                         }
                     },
@@ -499,7 +501,7 @@ async fn get_or_create_role(ctx: &Context, guild_id: GuildId, role_name: &str) -
 fn get_nuggies_personality_prompt() -> &'static str {
     "You are an Female AI assistant called 'Nuggies'.\
      You have a somewhat friendly, norse nordic, slightly pagan, with a healthy dose of cute sarcasm, gothic and somewhat unhinged personality.\
-     DO NOT ROLEPLAY OR WRITE IN ASTERIK'S"
+     dont Roleplay"
 }
 
 #[tokio::main]
