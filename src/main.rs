@@ -29,7 +29,6 @@ use tokio::sync::Mutex;
 
 struct Handler;
 
-// Database struct and implementation
 struct Database {
     conn: Mutex<Connection>,
 }
@@ -49,23 +48,17 @@ impl Database {
     }
 }
 
-// TypeMapKey for the database
 struct DatabaseKey;
 impl serenity::prelude::TypeMapKey for DatabaseKey {
     type Value = Arc<Database>;
 }
 
-
-// This helper function will handle both adding and removing roles based on reactions.
 async fn handle_reaction_role(ctx: &Context, reaction: &Reaction, add: bool) {
-    // Ignore reactions from bots
     if reaction.user(&ctx.http).await.map_or(true, |u| u.bot) {
         return;
     }
 
-    // Get the message that was reacted to
     if let Ok(msg) = reaction.message(&ctx.http).await {
-        // Only process reactions on messages sent by our bot
         if !msg.author.bot {
             return;
         }
@@ -86,21 +79,18 @@ async fn handle_reaction_role(ctx: &Context, reaction: &Reaction, add: bool) {
             }
         };
 
-        // Get the name of the custom emoji used
         let emoji_name = if let serenity::model::channel::ReactionType::Custom { name, .. } = &reaction.emoji {
             name.as_deref().unwrap_or("")
         } else {
             ""
         };
 
-        // Determine which role to assign based on the message content and emoji
         let role_name_to_assign: Option<&str> = if msg.content.starts_with("Assign yourself Pronouns") {
             let roles_map: HashMap<&str, &str> = [
                 ("justaboy", "he/him"), ("justagirl", "she/her"), ("pridejj", "they/them"),
             ].iter().cloned().collect();
             roles_map.get(emoji_name).copied()
         } else if msg.content.contains("role for event notifications") && emoji_name == "danseparty" {
-            // This is the logic for the FC Events role
             Some("FC Events")
         } else {
             None
@@ -108,7 +98,6 @@ async fn handle_reaction_role(ctx: &Context, reaction: &Reaction, add: bool) {
 
         if let Some(role_name) = role_name_to_assign {
             println!("[REACTION] User '{}' reacted with '{}' for role '{}'.", member.user.name, emoji_name, role_name);
-            // Find the role on the server
             if let Some(role) = guild_id.roles(&ctx.http).await.unwrap().values().find(|r| r.name == role_name) {
                 let action_result = if add {
                     member.add_role(&ctx.http, role.id).await
@@ -197,7 +186,6 @@ impl EventHandler for Handler {
             return;
         }
 
-        // --- GENDER ROLE COMMAND ---
         if msg.author.id.0 == 241614046913101825 && msg.content == "assignrole:gender" {
             println!("[CMD] Triggered 'assignrole:gender' by authorized user.");
             let guild_id = msg.guild_id.unwrap();
@@ -251,7 +239,6 @@ impl EventHandler for Handler {
             let _ = msg.delete(&ctx.http).await;
             return;
         }
-        // --- FC EVENTS ROLE COMMAND ---
         else if msg.author.id.0 == 241614046913101825 && msg.content == "assignrole:fcevents" {
             println!("[CMD] Triggered 'assignrole:fcevents' by authorized user.");
             let guild_id = msg.guild_id.unwrap();
@@ -259,13 +246,11 @@ impl EventHandler for Handler {
             let role_name = "FC Events";
             let emoji_name = "danseparty";
 
-            // Ensure the role exists, or create it
             if get_or_create_role(&ctx, guild_id, role_name).await.is_none() {
                 eprintln!("[ERROR] Failed to get or create role: '{}'. Aborting.", role_name);
                 return;
             }
 
-            // Find the custom emoji on the server
             let guild_emojis = match guild_id.emojis(&ctx.http).await {
                 Ok(emojis) => emojis,
                 Err(e) => {
@@ -280,7 +265,6 @@ impl EventHandler for Handler {
                     emoji, role_name
                 );
 
-                // Send the message and react to it
                 if let Ok(sent_message) = msg.channel_id.say(&ctx.http, &message_content).await {
                     println!("[ACTION] Successfully sent role assignment message for FC Events.");
                     if let Err(e) = sent_message.react(&ctx.http, emoji.clone()).await {
@@ -294,7 +278,6 @@ impl EventHandler for Handler {
                 return;
             }
 
-            // Delete the original command message
             let _ = msg.delete(&ctx.http).await;
             return;
         }
@@ -324,12 +307,10 @@ impl EventHandler for Handler {
         }
     }
 
-    // This calls the helper function
     async fn reaction_add(&self, ctx: Context, reaction: Reaction) {
         handle_reaction_role(&ctx, &reaction, true).await;
     }
 
-    // This calls the helper function
     async fn reaction_remove(&self, ctx: Context, reaction: Reaction) {
         handle_reaction_role(&ctx, &reaction, false).await;
     }
@@ -560,10 +541,10 @@ async fn get_or_create_role(ctx: &Context, guild_id: GuildId, role_name: &str) -
     }
 }
 
-// Function to define the bot's personality
 fn get_nuggies_personality_prompt() -> &'static str {
     "You are an Female AI assistant called 'Nuggies'.\
-     You have a somewhat friendly, norse nordic, slightly pagan, with a healthy dose of cute sarcasm, gothic and somewhat unhinged personality."
+     You have a somewhat friendly, norse nordic, slightly pagan, with a healthy dose of cute sarcasm, gothic and somewhat unhinged personality.\
+     dont Roleplay"
 }
 
 #[tokio::main]
