@@ -179,6 +179,9 @@ impl EventHandler for Handler {
                 .create_application_command(|command| {
                     command.name("nuggetbox").description("Check your personal amount of nuggets")
                 })
+                .create_application_command(|command| {
+                    command.name("slots").description("Spend 5 nuggets for a chance to win big!")
+                })
         })
             .await;
 
@@ -389,7 +392,7 @@ impl EventHandler for Handler {
                     "daily" => {
                         let data = ctx_clone.data.read().await;
                         let db = data.get::<DatabaseKey>().unwrap().clone();
-                        let conn = db.conn.lock().await; // Lock the connection
+                        let conn = db.conn.lock().await;
                         let user_id_i64 = *user_id.as_u64() as i64;
                         let now: DateTime<Tz> = Utc::now().with_timezone(&Berlin);
 
@@ -411,7 +414,7 @@ impl EventHandler for Handler {
                                 }
 
                                 if eligible {
-                                    let daily_nuggets = rand::thread_rng().gen_range(1..=10);
+                                    let daily_nuggets = rand::thread_rng().gen_range(1..=15);
                                     let new_total = nuggets + daily_nuggets;
                                     conn.execute(
                                         "INSERT INTO users (user_id, nuggets, last_daily) VALUES (?1, ?2, ?3)
@@ -424,7 +427,7 @@ impl EventHandler for Handler {
                                 }
                             },
                             Err(rusqlite::Error::QueryReturnedNoRows) => {
-                                let daily_nuggets = rand::thread_rng().gen_range(1..=10);
+                                let daily_nuggets = rand::thread_rng().gen_range(1..=15);
                                 conn.execute(
                                     "INSERT INTO users (user_id, nuggets, last_daily) VALUES (?1, ?2, ?3)",
                                     params![user_id_i64, daily_nuggets, now.naive_local().format("%Y-%m-%d %H:%M:%S").to_string()],
@@ -456,6 +459,70 @@ impl EventHandler for Handler {
                             Err(e) => {
                                 eprintln!("[ERROR] Database error on /nuggetbox: {:?}", e);
                                 "There was an error checking your nuggetbox.".to_string()
+                            }
+                        }
+                    },
+                    "slots" => {
+                        let data = ctx_clone.data.read().await;
+                        let db = data.get::<DatabaseKey>().unwrap().clone();
+                        let conn = db.conn.lock().await;
+                        let user_id_i64 = *user_id.as_u64() as i64;
+
+                        let mut stmt = conn.prepare("SELECT nuggets FROM users WHERE user_id = ?1").unwrap();
+                        let res: Result<i64> = stmt.query_row(params![user_id_i64], |row| row.get(0));
+
+                        match res {
+                            Ok(nuggets) => {
+                                if nuggets < 5 {
+                                    "You don't have enough nuggets to play the slots! You need at least 5.".to_string()
+                                } else {
+                                    let roll = rand::thread_rng().gen_range(1..=100);
+                                    let winnings = match roll {
+                                        1 => 1000,
+                                        2..=3 => 250,
+                                        4..=6 => 150,
+                                        7..=10 => 100,
+                                        11..=15 => 50,
+                                        16..=20 => 25,
+                                        21..=30 => 10,
+                                        31..=50 => 6,
+                                        51..=70 => 5,
+                                        71..=80 => 4,
+                                        81..=90 => 3,
+                                        91..=95 => 2,
+                                        _ => 1,
+                                    };
+
+                                    let new_total = nuggets - 5 + winnings;
+                                    conn.execute(
+                                        "UPDATE users SET nuggets = ? WHERE user_id = ?",
+                                        params![new_total, user_id_i64],
+                                    ).unwrap();
+
+                                    let witty_responses = [
+                                        "Don't spend it all in one place... or do, I'm not your mother.",
+                                        "Fortune favors the bold. Or in your case, the lucky.",
+                                        "The gods have smiled upon you. Or perhaps they just sneezed.",
+                                        "Ooh, shiny! A gift from my hoard to yours.",
+                                        "I suppose that's better than a kick in the teeth.",
+                                        "You call that a win? Adorable.",
+                                        "Jackpot! Or, you know, a minor financial gain.",
+                                        "There. Are you happy now?",
+                                    ];
+                                    let witty_response = witty_responses.choose(&mut rand::thread_rng()).unwrap_or(&"");
+
+                                    format!(
+                                        "You spent 5 nuggets and won {} nuggets! Your new total is {}.\n*{}*",
+                                        winnings, new_total, witty_response
+                                    )
+                                }
+                            },
+                            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                                "You don't have a nuggetbox yet! Use `/daily` to get your first nuggets.".to_string()
+                            },
+                            Err(e) => {
+                                eprintln!("[ERROR] Database error on /slots: {:?}", e);
+                                "There was an error trying to play the slots.".to_string()
                             }
                         }
                     },
@@ -496,7 +563,7 @@ async fn get_or_create_role(ctx: &Context, guild_id: GuildId, role_name: &str) -
 // Function to define the bot's personality
 fn get_nuggies_personality_prompt() -> &'static str {
     "You are an Female AI assistant called 'Nuggies'.\
-     You have a somewhat friendly, wistful, slightly norse pagan, with a healthy dose of cute sarcasm, gothic and somewhat unhinged personality."
+     You have a somewhat friendly, norse nordic, slightly pagan, with a healthy dose of cute sarcasm, gothic and somewhat unhinged personality."
 }
 
 #[tokio::main]
