@@ -18,33 +18,43 @@ use rand::seq::SliceRandom;
 use serde_json::Value;
 use std::path::Path;
 use std::collections::HashMap;
-use rusqlite::{Connection, Result, params};
-use chrono::{Utc, DateTime, NaiveDateTime};
-use chrono::TimeZone;
-use chrono_tz::Tz;
+use chrono::{Utc, NaiveDate};
 use chrono_tz::Europe::Berlin;
 use rand::Rng;
-use tokio::sync::Mutex;
-
+use tokio_postgres::NoTls;
+use bb8::Pool;
+use bb8_postgres::PostgresConnectionManager;
 
 struct Handler;
 
 struct Database {
-    conn: Mutex<Connection>,
+    pool: Arc<Pool<PostgresConnectionManager<NoTls>>>,
 }
 
 impl Database {
-    fn new() -> Self {
-        let conn = Connection::open("nuggets.db").expect("Failed to open database");
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                nuggets INTEGER NOT NULL DEFAULT 0,
-                last_daily TEXT
-            )",
-            [],
-        ).expect("Failed to create table");
-        Database { conn: Mutex::new(conn) }
+    async fn new() -> Self {
+        let db_url = env::var("DATABASE_URL").expect("Expected DATABASE_URL in the environment");
+        let manager = PostgresConnectionManager::new_from_stringlike(&db_url, NoTls)
+            .expect("Failed to create Postgres manager");
+        let pool = Arc::new(Pool::builder()
+            .build(manager)
+            .await
+            .expect("Failed to create database pool"));
+
+        // Use a scope to ensure `conn` is dropped before `pool` is moved
+        {
+            let conn = pool.get().await.expect("Failed to get connection from pool");
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS users (
+                    user_id BIGINT PRIMARY KEY,
+                    nuggets BIGINT NOT NULL DEFAULT 0,
+                    last_daily DATE
+                )",
+                &[],
+            ).await.expect("Failed to create users table");
+        } // conn is dropped here, releasing the borrow
+
+        Database { pool }
     }
 }
 
@@ -372,139 +382,84 @@ impl EventHandler for Handler {
                     },
                     "daily" => {
                         let data = ctx_clone.data.read().await;
-                        let db = data.get::<DatabaseKey>().unwrap().clone();
-                        let conn = db.conn.lock().await;
+                        let db = data.get::<DatabaseKey>().unwrap();
+                        let conn = db.pool.get().await.expect("Failed to get DB connection");
                         let user_id_i64 = *user_id.as_u64() as i64;
-                        let now: DateTime<Tz> = Utc::now().with_timezone(&Berlin);
+                        let today = Utc::now().with_timezone(&Berlin).date_naive();
 
-                        let mut stmt = conn.prepare("SELECT last_daily, nuggets FROM users WHERE user_id = ?1").unwrap();
-                        let res: Result<(Option<String>, i64)> = stmt.query_row(params![user_id_i64], |row| {
-                            Ok((row.get(0)?, row.get(1)?))
-                        });
+                        let row_opt = conn.query_one("SELECT nuggets, last_daily FROM users WHERE user_id = $1", &[&user_id_i64]).await.ok();
 
-                        match res {
-                            Ok((last_daily_str_opt, nuggets)) => {
-                                let mut eligible = true;
-                                if let Some(last_daily_str) = last_daily_str_opt {
-                                    if let Ok(last_daily) = NaiveDateTime::parse_from_str(&last_daily_str, "%Y-%m-%d %H:%M:%S") {
-                                        let last_daily_tz = Berlin.from_local_datetime(&last_daily).unwrap();
-                                        if last_daily_tz.date_naive() == now.date_naive() {
-                                            eligible = false;
-                                        }
-                                    }
-                                }
+                        if let Some(row) = row_opt {
+                            let nuggets: i64 = row.get(0);
+                            let last_daily: Option<NaiveDate> = row.get(1);
 
-                                if eligible {
-                                    let daily_nuggets = rand::thread_rng().gen_range(1..=15);
-                                    let new_total = nuggets + daily_nuggets;
-                                    conn.execute(
-                                        "INSERT INTO users (user_id, nuggets, last_daily) VALUES (?1, ?2, ?3)
-                                         ON CONFLICT(user_id) DO UPDATE SET nuggets = excluded.nuggets, last_daily = excluded.last_daily",
-                                        params![user_id_i64, new_total, now.naive_local().format("%Y-%m-%d %H:%M:%S").to_string()],
-                                    ).unwrap();
-                                    format!("You received {} nuggets! You now have a total of {} nuggets.", daily_nuggets, new_total)
-                                } else {
-                                    "You have already claimed your daily nuggets. Please try again tomorrow.".to_string()
-                                }
-                            },
-                            Err(rusqlite::Error::QueryReturnedNoRows) => {
-                                let daily_nuggets = rand::thread_rng().gen_range(1..=15);
-                                conn.execute(
-                                    "INSERT INTO users (user_id, nuggets, last_daily) VALUES (?1, ?2, ?3)",
-                                    params![user_id_i64, daily_nuggets, now.naive_local().format("%Y-%m-%d %H:%M:%S").to_string()],
-                                ).unwrap();
-                                format!("Welcome! You received your first {} nuggets!", daily_nuggets)
-                            },
-                            Err(e) => {
-                                eprintln!("[ERROR] Database error: {:?}", e);
-                                "There was an error accessing the database.".to_string()
+                            if last_daily == Some(today) {
+                                "You have already claimed your daily nuggets. Please try again tomorrow.".to_string()
+                            } else {
+                                let daily_nuggets: i64 = rand::thread_rng().gen_range(1..=15);
+                                let new_total = nuggets + daily_nuggets;
+                                conn.execute("UPDATE users SET nuggets = $1, last_daily = $2 WHERE user_id = $3", &[&new_total, &today, &user_id_i64]).await.unwrap();
+                                format!("You received {} nuggets! You now have a total of {} nuggets.", daily_nuggets, new_total)
                             }
+                        } else {
+                            let daily_nuggets: i64 = rand::thread_rng().gen_range(1..=15);
+                            conn.execute("INSERT INTO users (user_id, nuggets, last_daily) VALUES ($1, $2, $3)", &[&user_id_i64, &daily_nuggets, &today]).await.unwrap();
+                            format!("Welcome! You received your first {} nuggets!", daily_nuggets)
                         }
                     },
                     "nuggetbox" => {
                         let data = ctx_clone.data.read().await;
-                        let db = data.get::<DatabaseKey>().unwrap().clone();
-                        let conn = db.conn.lock().await;
+                        let db = data.get::<DatabaseKey>().unwrap();
+                        let conn = db.pool.get().await.expect("Failed to get DB connection");
                         let user_id_i64 = *user_id.as_u64() as i64;
 
-                        let mut stmt = conn.prepare("SELECT nuggets FROM users WHERE user_id = ?1").unwrap();
-                        let res: Result<i64> = stmt.query_row(params![user_id_i64], |row| row.get(0));
-
-                        match res {
-                            Ok(nuggets) => {
-                                format!("You have {} nuggets in your nuggetbox.", nuggets)
-                            },
-                            Err(rusqlite::Error::QueryReturnedNoRows) => {
-                                "You don't have a nuggetbox yet! Use `/daily` to get your first nuggets.".to_string()
-                            },
-                            Err(e) => {
-                                eprintln!("[ERROR] Database error on /nuggetbox: {:?}", e);
-                                "There was an error checking your nuggetbox.".to_string()
-                            }
+                        if let Ok(row) = conn.query_one("SELECT nuggets FROM users WHERE user_id = $1", &[&user_id_i64]).await {
+                            let nuggets: i64 = row.get(0);
+                            format!("You have {} nuggets in your nuggetbox.", nuggets)
+                        } else {
+                            "You don't have a nuggetbox yet! Use `/daily` to get your first nuggets.".to_string()
                         }
                     },
                     "slots" => {
                         let data = ctx_clone.data.read().await;
-                        let db = data.get::<DatabaseKey>().unwrap().clone();
-                        let conn = db.conn.lock().await;
+                        let db = data.get::<DatabaseKey>().unwrap();
+                        let conn = db.pool.get().await.expect("Failed to get DB connection");
                         let user_id_i64 = *user_id.as_u64() as i64;
 
-                        let mut stmt = conn.prepare("SELECT nuggets FROM users WHERE user_id = ?1").unwrap();
-                        let res: Result<i64> = stmt.query_row(params![user_id_i64], |row| row.get(0));
+                        if let Ok(row) = conn.query_one("SELECT nuggets FROM users WHERE user_id = $1", &[&user_id_i64]).await {
+                            let nuggets: i64 = row.get(0);
+                            if nuggets < 5 {
+                                "You don't have enough nuggets to play the slots! You need at least 5.".to_string()
+                            } else {
+                                let roll = rand::thread_rng().gen_range(1..=100);
+                                let winnings = match roll {
+                                    1 => 1000, 2..=3 => 250, 4..=6 => 150, 7..=10 => 100,
+                                    11..=15 => 50, 16..=20 => 25, 21..=30 => 10, 31..=50 => 6,
+                                    51..=70 => 5, 71..=80 => 4, 81..=90 => 3, 91..=95 => 2,
+                                    _ => 1,
+                                };
+                                let new_total = nuggets - 5 + winnings;
+                                conn.execute("UPDATE users SET nuggets = $1 WHERE user_id = $2", &[&new_total, &user_id_i64]).await.unwrap();
 
-                        match res {
-                            Ok(nuggets) => {
-                                if nuggets < 5 {
-                                    "You don't have enough nuggets to play the slots! You need at least 5.".to_string()
-                                } else {
-                                    let roll = rand::thread_rng().gen_range(1..=100);
-                                    let winnings = match roll {
-                                        1 => 1000,
-                                        2..=3 => 250,
-                                        4..=6 => 150,
-                                        7..=10 => 100,
-                                        11..=15 => 50,
-                                        16..=20 => 25,
-                                        21..=30 => 10,
-                                        31..=50 => 6,
-                                        51..=70 => 5,
-                                        71..=80 => 4,
-                                        81..=90 => 3,
-                                        91..=95 => 2,
-                                        _ => 1,
-                                    };
+                                let witty_responses = [
+                                    "Don't spend it all in one place... or do, I'm not your mother.",
+                                    "Fortune favors the bold. Or in your case, the lucky.",
+                                    "The gods have smiled upon you. Or perhaps they just sneezed.",
+                                    "Ooh, shiny! A gift from my hoard to yours.",
+                                    "I suppose that's better than a kick in the teeth.",
+                                    "You call that a win? Adorable.",
+                                    "Jackpot! Or, you know, a minor financial gain.",
+                                    "There. Are you happy now?",
+                                ];
+                                let witty_response = witty_responses.choose(&mut rand::thread_rng()).unwrap_or(&"");
 
-                                    let new_total = nuggets - 5 + winnings;
-                                    conn.execute(
-                                        "UPDATE users SET nuggets = ? WHERE user_id = ?",
-                                        params![new_total, user_id_i64],
-                                    ).unwrap();
-
-                                    let witty_responses = [
-                                        "Don't spend it all in one place... or do, I'm not your mother.",
-                                        "Fortune favors the bold. Or in your case, the lucky.",
-                                        "The gods have smiled upon you. Or perhaps they just sneezed.",
-                                        "Ooh, shiny! A gift from my hoard to yours.",
-                                        "I suppose that's better than a kick in the teeth.",
-                                        "You call that a win? Adorable.",
-                                        "Jackpot! Or, you know, a minor financial gain.",
-                                        "There. Are you happy now?",
-                                    ];
-                                    let witty_response = witty_responses.choose(&mut rand::thread_rng()).unwrap_or(&"");
-
-                                    format!(
-                                        "You spent 5 nuggets and won {} nuggets! Your new total is {}.\n*{}*",
-                                        winnings, new_total, witty_response
-                                    )
-                                }
-                            },
-                            Err(rusqlite::Error::QueryReturnedNoRows) => {
-                                "You don't have a nuggetbox yet! Use `/daily` to get your first nuggets.".to_string()
-                            },
-                            Err(e) => {
-                                eprintln!("[ERROR] Database error on /slots: {:?}", e);
-                                "There was an error trying to play the slots.".to_string()
+                                format!(
+                                    "You spent 5 nuggets and won {} nuggets! Your new total is {}.\n*{}*",
+                                    winnings, new_total, witty_response
+                                )
                             }
+                        } else {
+                            "You don't have a nuggetbox yet! Use `/daily` to get your first nuggets.".to_string()
                         }
                     },
                     _ => "Unknown command.".to_string(),
@@ -544,7 +499,7 @@ async fn get_or_create_role(ctx: &Context, guild_id: GuildId, role_name: &str) -
 fn get_nuggies_personality_prompt() -> &'static str {
     "You are an Female AI assistant called 'Nuggies'.\
      You have a somewhat friendly, norse nordic, slightly pagan, with a healthy dose of cute sarcasm, gothic and somewhat unhinged personality.\
-     dont Roleplay"
+     DO NOT ROLEPLAY OR WRITE IN ASTERIK'S"
 }
 
 #[tokio::main]
@@ -569,7 +524,7 @@ async fn main() {
         let mut data = client.data.write().await;
         data.insert::<GeminiApiKey>(Arc::new(gemini_api_key));
         data.insert::<TenorApiKey>(Arc::new(tenor_api_key));
-        data.insert::<DatabaseKey>(Arc::new(Database::new()));
+        data.insert::<DatabaseKey>(Arc::new(Database::new().await));
     }
 
     if let Err(why) = client.start().await {
