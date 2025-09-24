@@ -14,9 +14,9 @@ RUN cargo build --release
 # Use a modern, supported, and secure base image (Debian 12 "Bookworm")
 FROM debian:bookworm-slim
 
-# Install the OpenSSL runtime library, which is required by reqwest for HTTPS.
+# Install the OpenSSL runtime library AND the curl utility for debugging.
 # We also clean up the apt cache to keep the image small.
-RUN apt-get update && apt-get install -y libssl3 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y libssl3 curl && rm -rf /var/lib/apt/lists/*
 
 # Copy the compiled binary from the builder stage
 COPY --from=builder /usr/src/app/target/release/discord-gemini-bot /usr/local/bin/discord-gemini-bot
