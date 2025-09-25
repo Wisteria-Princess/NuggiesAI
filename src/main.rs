@@ -453,7 +453,7 @@ impl EventHandler for Handler {
                                         let chosen_symbol = *weighted_list.choose(&mut rng).unwrap();
                                         let jackpot_win = symbols.iter().find(|(sym, _, _)| *sym == chosen_symbol).unwrap().1;
                                         let prompt = format!(
-                                            "{}\nAs Nuggies, write a witty and sarcastic one-liner for a user who just won {} nuggets at a slot machine.",
+                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just won {} nuggets at a slot machine.",
                                             get_nuggies_personality_prompt(), jackpot_win
                                         );
                                         (chosen_symbol, chosen_symbol, chosen_symbol, jackpot_win, prompt)
@@ -493,11 +493,11 @@ impl EventHandler for Handler {
                                     .unwrap_or_else(|_| "...".to_string());
 
                                 if winnings > 5 {
-                                    format!("{}\n\nYou won {} nuggets!\n*{}*", display, winnings, witty_response)
+                                    format!("{}\n\nYou won {} nuggets!\n{}", display, winnings, witty_response)
                                 } else if winnings == 5 {
-                                    format!("{}\n\nYou get your 5 nuggets back.\n*{}*", display, witty_response)
+                                    format!("{}\n\nYou get your 5 nuggets back.\n{}", display, witty_response)
                                 } else {
-                                    format!("{}\n\n*{}*", display, witty_response)
+                                    format!("{}\n\n{}", display, witty_response)
                                 }
                             }
                         } else {
