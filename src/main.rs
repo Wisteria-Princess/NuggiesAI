@@ -157,9 +157,6 @@ impl EventHandler for Handler {
                     command.name("fox").description("Get a random fox GIF")
                 })
                 .create_application_command(|command| {
-                    command.name("fops").description("Get a random fox GIF")
-                })
-                .create_application_command(|command| {
                     command.name("translate").description("Translate text to a specified language")
                         .create_option(|option| {
                             option.name("language")
@@ -377,7 +374,7 @@ impl EventHandler for Handler {
                             call_gemini_api(&gemini_api_key, &prompt).await.unwrap_or_else(|_| "Sorry, I couldn't translate that.".to_string())
                         } else { "Please provide both a language and text.".to_string() }
                     },
-                    "fox" | "fops" => {
+                    "fox" => {
                         let data = ctx_clone.data.read().await;
                         let tenor_api_key = data.get::<TenorApiKey>().unwrap().clone();
                         get_random_fox_gif(&tenor_api_key).await.unwrap_or_else(|_| "https://media.tenor.com/YxT1w3VX5BAAAAAM/fox-dance.gif".to_string())
@@ -403,7 +400,7 @@ impl EventHandler for Handler {
                                 let new_total = nuggets + daily_nuggets;
                                 let update_params: &[&(dyn ToSql + Sync)] = &[&new_total, &today, &user_id_i64];
                                 conn.execute("UPDATE users SET nuggets = $1, last_daily = $2 WHERE user_id = $3", update_params).await.unwrap();
-                                format!("You received {} nuggets! You now have a total of {} nuggets.", daily_nuggets, new_total)
+                                format!("You received {} nuggets!", daily_nuggets)
                             }
                         } else {
                             let daily_nuggets: i64 = rand::thread_rng().gen_range(1..=15);
@@ -429,6 +426,7 @@ impl EventHandler for Handler {
                         let data = ctx_clone.data.read().await;
                         let db = data.get::<DatabaseKey>().unwrap();
                         let conn = db.pool.get().await.expect("Failed to get DB connection");
+                        let gemini_api_key = data.get::<GeminiApiKey>().unwrap().clone();
                         let user_id_i64 = *user_id.as_u64() as i64;
 
                         if let Ok(row) = conn.query_one("SELECT nuggets FROM users WHERE user_id = $1", &[&user_id_i64]).await {
@@ -436,33 +434,71 @@ impl EventHandler for Handler {
                             if nuggets < 5 {
                                 "You don't have enough nuggets to play the slots! You need at least 5.".to_string()
                             } else {
-                                let roll = rand::thread_rng().gen_range(1..=100);
-                                let winnings = match roll {
-                                    1 => 1000, 2..=3 => 250, 4..=6 => 150, 7..=10 => 100,
-                                    11..=15 => 50, 16..=20 => 25, 21..=30 => 10, 31..=50 => 6,
-                                    51..=70 => 5, 71..=80 => 4, 81..=90 => 3, 91..=95 => 2,
-                                    _ => 1,
+                                // Define symbols with rarity (weight) and jackpot value
+                                let symbols = [
+                                    ("🍒", 10, 10), // emoji, jackpot win, weight
+                                    ("🍊", 25, 8),
+                                    ("🔔", 40, 6),
+                                    ("🍀", 75, 4),
+                                    ("💎", 250, 2),
+                                ];
+
+                                // === FIX STARTS HERE ===
+                                // This block generates the symbols. The non-Send `rng` variable
+                                // is created and destroyed entirely within this scope, before any .await calls.
+                                let (s1, s2, s3) = {
+                                    let mut weighted_list = Vec::new();
+                                    for (symbol, _, weight) in &symbols {
+                                        for _ in 0..*weight {
+                                            weighted_list.push(*symbol);
+                                        }
+                                    }
+                                    let mut rng = rand::thread_rng();
+                                    (
+                                        *weighted_list.choose(&mut rng).unwrap(),
+                                        *weighted_list.choose(&mut rng).unwrap(),
+                                        *weighted_list.choose(&mut rng).unwrap(),
+                                    )
                                 };
+                                // === FIX ENDS HERE ===
+
+                                let display = format!("[ {} | {} | {} ]", s1, s2, s3);
+                                let (winnings, response_prompt) = if s1 == s2 && s2 == s3 {
+                                    // 3 are the same (Jackpot)
+                                    let jackpot_win = symbols.iter().find(|(sym, _, _)| *sym == s1).unwrap().1;
+                                    let prompt = format!(
+                                        "{}\nAs Nuggies, write a witty and sarcastic one-liner for a user who just won {} nuggets at a slot machine.",
+                                        get_nuggies_personality_prompt(), jackpot_win
+                                    );
+                                    (jackpot_win, prompt)
+                                } else if s1 == s2 || s1 == s3 || s2 == s3 {
+                                    // 2 are the same
+                                    (5, String::new()) // No witty response needed, just give nuggets back
+                                } else {
+                                    // 3 different symbols (Loss)
+                                    let prompt = format!(
+                                        "{}\nAs Nuggies, write a witty and sarcastic one-liner for a user who just lost at a slot machine.",
+                                        get_nuggies_personality_prompt()
+                                    );
+                                    (0, prompt)
+                                };
+
                                 let new_total = nuggets - 5 + winnings;
                                 let params: &[&(dyn ToSql + Sync)] = &[&new_total, &user_id_i64];
                                 conn.execute("UPDATE users SET nuggets = $1 WHERE user_id = $2", params).await.unwrap();
 
-                                let witty_responses = [
-                                    "Don't spend it all in one place... or do, I'm not your mother.",
-                                    "Fortune favors the bold. Or in your case, the lucky.",
-                                    "The gods have smiled upon you. Or perhaps they just sneezed.",
-                                    "Ooh, shiny! A gift from my hoard to yours.",
-                                    "I suppose that's better than a kick in the teeth.",
-                                    "You call that a win? Adorable.",
-                                    "Jackpot! Or, you know, a minor financial gain.",
-                                    "There. Are you happy now?",
-                                ];
-                                let witty_response = witty_responses.choose(&mut rand::thread_rng()).unwrap_or(&"");
-
-                                format!(
-                                    "You spent 5 nuggets and won {} nuggets! Your new total is {}.\n*{}*",
-                                    winnings, new_total, witty_response
-                                )
+                                if !response_prompt.is_empty() {
+                                    let witty_response = call_gemini_api(&gemini_api_key, &response_prompt)
+                                        .await
+                                        .unwrap_or_else(|_| "...\nI have nothing witty to say.".to_string());
+                                    if winnings > 5 { // Jackpot
+                                        format!("{}\n\nYou won {} nuggets!\n*{}*", display, winnings, witty_response)
+                                    } else { // Loss
+                                        format!("{}\n\n*{}*", display, witty_response)
+                                    }
+                                } else { // 2 are the same, break even
+                                    format!("{}\n\nYou get your 5 nuggets back. Try again, maybe?", display)
+                                }
                             }
                         } else {
                             "You don't have a nuggetbox yet! Use `/daily` to get your first nuggets.".to_string()
@@ -505,7 +541,7 @@ async fn get_or_create_role(ctx: &Context, guild_id: GuildId, role_name: &str) -
 fn get_nuggies_personality_prompt() -> &'static str {
     "You are an Female AI assistant called 'Nuggies'.\
      You have a somewhat friendly, norse nordic, slightly pagan, with a healthy dose of cute sarcasm, gothic and somewhat unhinged personality.\
-     dont Roleplay"
+     dont Roleplay or write in asteriks"
 }
 
 #[tokio::main]
