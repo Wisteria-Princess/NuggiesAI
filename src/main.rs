@@ -434,70 +434,70 @@ impl EventHandler for Handler {
                             if nuggets < 5 {
                                 "You don't have enough nuggets to play the slots! You need at least 5.".to_string()
                             } else {
-                                // Define symbols with rarity (weight) and jackpot value
                                 let symbols = [
-                                    ("🍒", 10, 10), // emoji, jackpot win, weight
-                                    ("🍊", 25, 8),
-                                    ("🔔", 40, 6),
-                                    ("🍀", 75, 4),
-                                    ("💎", 250, 2),
+                                    ("🍒", 10, 10), ("🍊", 25, 8), ("🔔", 40, 6),
+                                    ("🍀", 75, 4), ("💎", 250, 2),
                                 ];
 
-                                // === FIX STARTS HERE ===
-                                // This block generates the symbols. The non-Send `rng` variable
-                                // is created and destroyed entirely within this scope, before any .await calls.
-                                let (s1, s2, s3) = {
-                                    let mut weighted_list = Vec::new();
-                                    for (symbol, _, weight) in &symbols {
-                                        for _ in 0..*weight {
-                                            weighted_list.push(*symbol);
-                                        }
-                                    }
+                                let (s1, s2, s3, winnings, response_prompt) = {
                                     let mut rng = rand::thread_rng();
-                                    (
-                                        *weighted_list.choose(&mut rng).unwrap(),
-                                        *weighted_list.choose(&mut rng).unwrap(),
-                                        *weighted_list.choose(&mut rng).unwrap(),
-                                    )
+                                    let outcome_roll = rng.gen_range(1..=100);
+
+                                    if outcome_roll <= 5 {
+                                        let mut weighted_list = Vec::new();
+                                        for (symbol, _, weight) in &symbols {
+                                            for _ in 0..*weight {
+                                                weighted_list.push(*symbol);
+                                            }
+                                        }
+                                        let chosen_symbol = *weighted_list.choose(&mut rng).unwrap();
+                                        let jackpot_win = symbols.iter().find(|(sym, _, _)| *sym == chosen_symbol).unwrap().1;
+                                        let prompt = format!(
+                                            "{}\nAs Nuggies, write a witty and sarcastic one-liner for a user who just won {} nuggets at a slot machine.",
+                                            get_nuggies_personality_prompt(), jackpot_win
+                                        );
+                                        (chosen_symbol, chosen_symbol, chosen_symbol, jackpot_win, prompt)
+                                    } else if outcome_roll <= 20 {
+                                        let all_symbols: Vec<&str> = symbols.iter().map(|(s, _, _)| *s).collect();
+                                        let mut chosen = all_symbols.choose_multiple(&mut rng, 2);
+                                        let symbol_a = *chosen.next().unwrap();
+                                        let symbol_b = *chosen.next().unwrap();
+                                        let mut result = [symbol_a, symbol_a, symbol_b];
+                                        result.shuffle(&mut rng);
+                                        let prompt = format!(
+                                            "{}\nAs Nuggies, write a witty and sarcastic one-liner for a user who just broke even at a slot machine, getting their bet back.",
+                                            get_nuggies_personality_prompt()
+                                        );
+                                        (result[0], result[1], result[2], 5, prompt)
+                                    } else {
+                                        let all_symbols: Vec<&str> = symbols.iter().map(|(s, _, _)| *s).collect();
+                                        let mut chosen = all_symbols.choose_multiple(&mut rng, 3);
+                                        let s1 = *chosen.next().unwrap();
+                                        let s2 = *chosen.next().unwrap();
+                                        let s3 = *chosen.next().unwrap();
+                                        let prompt = format!(
+                                            "{}\nAs Nuggies, write a witty and sarcastic one-liner for a user who just lost at a slot machine.",
+                                            get_nuggies_personality_prompt()
+                                        );
+                                        (s1, s2, s3, 0, prompt)
+                                    }
                                 };
-                                // === FIX ENDS HERE ===
 
                                 let display = format!("[ {} | {} | {} ]", s1, s2, s3);
-                                let (winnings, response_prompt) = if s1 == s2 && s2 == s3 {
-                                    // 3 are the same (Jackpot)
-                                    let jackpot_win = symbols.iter().find(|(sym, _, _)| *sym == s1).unwrap().1;
-                                    let prompt = format!(
-                                        "{}\nAs Nuggies, write a witty and sarcastic one-liner for a user who just won {} nuggets at a slot machine.",
-                                        get_nuggies_personality_prompt(), jackpot_win
-                                    );
-                                    (jackpot_win, prompt)
-                                } else if s1 == s2 || s1 == s3 || s2 == s3 {
-                                    // 2 are the same
-                                    (5, String::new()) // No witty response needed, just give nuggets back
-                                } else {
-                                    // 3 different symbols (Loss)
-                                    let prompt = format!(
-                                        "{}\nAs Nuggies, write a witty and sarcastic one-liner for a user who just lost at a slot machine.",
-                                        get_nuggies_personality_prompt()
-                                    );
-                                    (0, prompt)
-                                };
-
                                 let new_total = nuggets - 5 + winnings;
                                 let params: &[&(dyn ToSql + Sync)] = &[&new_total, &user_id_i64];
                                 conn.execute("UPDATE users SET nuggets = $1 WHERE user_id = $2", params).await.unwrap();
 
-                                if !response_prompt.is_empty() {
-                                    let witty_response = call_gemini_api(&gemini_api_key, &response_prompt)
-                                        .await
-                                        .unwrap_or_else(|_| "...\nI have nothing witty to say.".to_string());
-                                    if winnings > 5 { // Jackpot
-                                        format!("{}\n\nYou won {} nuggets!\n*{}*", display, winnings, witty_response)
-                                    } else { // Loss
-                                        format!("{}\n\n*{}*", display, witty_response)
-                                    }
-                                } else { // 2 are the same, break even
-                                    format!("{}\n\nYou get your 5 nuggets back. Try again, maybe?", display)
+                                let witty_response = call_gemini_api(&gemini_api_key, &response_prompt)
+                                    .await
+                                    .unwrap_or_else(|_| "...".to_string());
+
+                                if winnings > 5 {
+                                    format!("{}\n\nYou won {} nuggets!\n*{}*", display, winnings, witty_response)
+                                } else if winnings == 5 {
+                                    format!("{}\n\nYou get your 5 nuggets back.\n*{}*", display, witty_response)
+                                } else {
+                                    format!("{}\n\n*{}*", display, witty_response)
                                 }
                             }
                         } else {
