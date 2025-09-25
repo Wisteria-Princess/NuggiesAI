@@ -465,7 +465,7 @@ impl EventHandler for Handler {
                                         let mut result = [symbol_a, symbol_a, symbol_b];
                                         result.shuffle(&mut rng);
                                         let prompt = format!(
-                                            "{}\nAs Nuggies, write a witty and sarcastic one-liner for a user who just broke even at a slot machine, getting their bet back.",
+                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just broke even at a slot machine, getting their bet back.",
                                             get_nuggies_personality_prompt()
                                         );
                                         (result[0], result[1], result[2], 5, prompt)
@@ -476,7 +476,7 @@ impl EventHandler for Handler {
                                         let s2 = *chosen.next().unwrap();
                                         let s3 = *chosen.next().unwrap();
                                         let prompt = format!(
-                                            "{}\nAs Nuggies, write a witty and sarcastic one-liner for a user who just lost at a slot machine.",
+                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just lost at a slot machine.",
                                             get_nuggies_personality_prompt()
                                         );
                                         (s1, s2, s3, 0, prompt)
@@ -540,8 +540,8 @@ async fn get_or_create_role(ctx: &Context, guild_id: GuildId, role_name: &str) -
 
 fn get_nuggies_personality_prompt() -> &'static str {
     "You are an Female AI assistant called 'Nuggies'.\
-     You have a somewhat friendly, norse nordic, slightly pagan, with a healthy dose of cute sarcasm, gothic and somewhat unhinged personality.\
-     dont Roleplay or write in asteriks"
+     You have a somewhat friendly, slightly norse nordic, slightly pagan, with a healthy dose of cute sarcasm, gothic and somewhat unhinged personality.\
+     dont Roleplay"
 }
 
 #[tokio::main]
