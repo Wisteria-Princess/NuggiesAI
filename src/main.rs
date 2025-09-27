@@ -604,21 +604,34 @@ impl serenity::prelude::TypeMapKey for TenorApiKey {
 
 async fn call_gemini_api(api_key: &str, message: &str) -> Result<String, reqwest::Error> {
     let client = HttpClient::new();
-    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
+    // Corrected the model name in the URL from "gemini-1.5-flash" to "gemini-1.5-flash-latest"
+    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent";
     let request_body = serde_json::json!({ "contents": [{ "parts": [{ "text": message }] }] });
+
     println!("[API REQUEST - Gemini] Sending request for message: \"{}\"", message);
-    let response = client.post(url).header("x-goog-api-key", api_key).json(&request_body).send().await?;
+
+    let response = client.post(url)
+        .header("x-goog-api-key", api_key)
+        .json(&request_body)
+        .send()
+        .await?;
+
     let response_json = response.json::<serde_json::Value>().await?;
 
     let response_string = serde_json::to_string(&response_json).unwrap_or_else(|_| "{}".to_string());
     let truncated_response = response_string.chars().take(100).collect::<String>();
     println!("[API RESPONSE - Gemini] First 100 chars: {}", truncated_response);
-
-    let response_text = response_json["candidates"][0]["content"]["parts"][0]["text"]
-        .as_str()
-        .unwrap_or("Sorry, the Endpoint is currently overloaded, please try again.")
-        .to_string();
-    Ok(response_text)
+    
+    if let Some(candidates) = response_json.get("candidates") {
+        let response_text = candidates[0]["content"]["parts"][0]["text"]
+            .as_str()
+            .unwrap_or("Sorry, the Endpoint is currently overloaded, please try again.")
+            .to_string();
+        Ok(response_text)
+    } else {
+        eprintln!("[ERROR - Gemini API] No candidates found in response: {}", response_string);
+        Ok("I couldn't come up with a response. Perhaps the topic was too spicy?".to_string())
+    }
 }
 
 async fn get_random_fox_gif(api_key: &str) -> Result<String, reqwest::Error> {
