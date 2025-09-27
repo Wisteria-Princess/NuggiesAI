@@ -83,7 +83,7 @@ async fn handle_reaction_role(ctx: &Context, reaction: &Reaction, add: bool) {
         let mut member = match guild_id.member(&ctx.http, user_id).await {
             Ok(m) => m,
             Err(e) => {
-                eprintln!("[ERROR] Could not fetch member: {:?}", e);
+                eprintln!("[ERROR] Could not fetch member (ID: {}): {:?}", user_id, e);
                 return;
             }
         };
@@ -106,7 +106,7 @@ async fn handle_reaction_role(ctx: &Context, reaction: &Reaction, add: bool) {
         };
 
         if let Some(role_name) = role_name_to_assign {
-            println!("[REACTION] User '{}' reacted with '{}' for role '{}'.", member.user.name, emoji_name, role_name);
+            println!("[REACTION] User '{}' (ID: {}) reacted with emoji '{}' for role '{}' in Guild (ID: {}).", member.user.name, member.user.id, emoji_name, role_name, guild_id);
             if let Some(role) = guild_id.roles(&ctx.http).await.unwrap().values().find(|r| r.name == role_name) {
                 let action_result = if add {
                     member.add_role(&ctx.http, role.id).await
@@ -117,11 +117,12 @@ async fn handle_reaction_role(ctx: &Context, reaction: &Reaction, add: bool) {
                 let action_str = if add { "Assigned" } else { "Removed" };
                 let action_str_fail = if add { "assign" } else { "remove" };
 
-                if action_result.is_ok() {
-                    println!("[SUCCESS] {} role '{}' {} '{}'.", action_str, role.name, if add {"to"} else {"from"}, member.user.name);
-                } else {
-                    eprintln!("[ERROR] Failed to {} role '{}' {} '{}'. Check permissions.", action_str_fail, role.name, if add {"to"} else {"from"}, member.user.name);
+                match action_result {
+                    Ok(_) => println!("[SUCCESS] {} role '{}' (ID: {}) {} '{}' (ID: {}).", action_str, role.name, role.id, if add {"to"} else {"from"}, member.user.name, member.user.id),
+                    Err(e) => eprintln!("[ERROR] Failed to {} role '{}' (ID: {}) {} '{}' (ID: {}). Reason: {:?}", action_str_fail, role.name, role.id, if add {"to"} else {"from"}, member.user.name, member.user.id, e),
                 }
+            } else {
+                eprintln!("[ERROR] Could not find a role named '{}' in Guild (ID: {}) to assign/remove.", role_name, guild_id);
             }
         }
     }
@@ -131,7 +132,7 @@ async fn handle_reaction_role(ctx: &Context, reaction: &Reaction, add: bool) {
 #[async_trait]
 impl EventHandler for Handler {
     async fn ready(&self, _ctx: Context, ready: Ready) {
-        println!("[INFO] Bot is connected as {}", ready.user.name);
+        println!("[INFO] Bot is connected as {} (ID: {})", ready.user.name, ready.user.id);
 
         let commands = serenity::model::application::command::Command::set_global_application_commands(&_ctx.http, |commands| {
             commands
@@ -183,10 +184,14 @@ impl EventHandler for Handler {
         })
             .await;
 
-        if let Err(e) = commands {
-            eprintln!("[ERROR] Error creating global application commands: {:?}", e);
-        } else {
-            println!("[INFO] Successfully registered global application commands!");
+        match commands {
+            Ok(commands) => {
+                let command_details: Vec<_> = commands.iter().map(|c| format!("'{}' (ID: {})", c.name, c.id)).collect();
+                println!("[API RESPONSE - Discord] Successfully registered global application commands: {:?}", command_details);
+            }
+            Err(e) => {
+                eprintln!("[ERROR] Error creating global application commands: {:?}", e);
+            }
         }
     }
 
@@ -195,27 +200,29 @@ impl EventHandler for Handler {
             return;
         }
 
+        let guild_id_opt = msg.guild_id;
+
         if msg.author.id.0 == 241614046913101825 && msg.content == "assignrole:gender" {
-            println!("[CMD] Triggered 'assignrole:gender' by authorized user.");
+            println!("[CMD] Triggered 'assignrole:gender' by user '{}' (ID: {}) in Guild (ID: {:?})", msg.author.name, msg.author.id, guild_id_opt);
             let guild_id = msg.guild_id.unwrap();
 
             let role_names = ["he/him", "she/her", "they/them"];
             let emoji_names = ["justaboy", "justagirl", "pridejj"];
 
-            println!("[DEBUG] Verifying roles exist...");
+            println!("[DEBUG] Verifying roles exist in Guild (ID: {})...", guild_id);
             for role_name in role_names.iter() {
                 if get_or_create_role(&ctx, guild_id, role_name).await.is_none() {
-                    eprintln!("[ERROR] Failed to get or create role: {}. Aborting.", role_name);
+                    eprintln!("[ERROR] Failed to get or create role: '{}'. Aborting.", role_name);
                     return;
                 }
             }
             println!("[DEBUG] Role verification complete.");
 
-            println!("[DEBUG] Fetching custom emojis...");
+            println!("[DEBUG] Fetching custom emojis from Guild (ID: {})...", guild_id);
             let guild_emojis = match guild_id.emojis(&ctx.http).await {
                 Ok(emojis) => emojis,
                 Err(e) => {
-                    eprintln!("[ERROR] Could not fetch emojis for guild: {:?}. Aborting.", e);
+                    eprintln!("[ERROR] Could not fetch emojis for guild (ID: {}): {:?}. Aborting.", guild_id, e);
                     return;
                 }
             };
@@ -225,7 +232,7 @@ impl EventHandler for Handler {
                 if let Some(emoji) = guild_emojis.iter().find(|e| e.name == *name) {
                     emojis.push(emoji.clone());
                 } else {
-                    eprintln!("[ERROR] Could not find emoji '{}' on the server. Aborting.", name);
+                    eprintln!("[ERROR] Could not find emoji '{}' on the server (Guild ID: {}). Aborting.", name, guild_id);
                     return;
                 }
             }
@@ -236,20 +243,25 @@ impl EventHandler for Handler {
                 emojis[0], emojis[1], emojis[2]
             );
 
-            if let Ok(sent_message) = msg.channel_id.say(&ctx.http, &message_content).await {
-                println!("[ACTION] Successfully sent role assignment message.");
-                for emoji in emojis {
-                    let _ = sent_message.react(&ctx.http, emoji).await;
+            match msg.channel_id.say(&ctx.http, &message_content).await {
+                Ok(sent_message) => {
+                    println!("[ACTION] Successfully sent role assignment message (ID: {}) to channel (ID: {}).", sent_message.id, sent_message.channel_id);
+                    for emoji in emojis {
+                        if let Err(e) = sent_message.react(&ctx.http, emoji).await {
+                            eprintln!("[ERROR] Failed to react to message (ID: {}): {:?}", sent_message.id, e);
+                        }
+                    }
                 }
-            } else {
-                eprintln!("[ERROR] Failed to send role assignment message.");
+                Err(e) => {
+                    eprintln!("[ERROR] Failed to send role assignment message in channel (ID: {}): {:?}", msg.channel_id, e);
+                }
             }
 
             let _ = msg.delete(&ctx.http).await;
             return;
         }
         else if msg.author.id.0 == 241614046913101825 && msg.content == "assignrole:fcevents" {
-            println!("[CMD] Triggered 'assignrole:fcevents' by authorized user.");
+            println!("[CMD] Triggered 'assignrole:fcevents' by user '{}' (ID: {}) in Guild (ID: {:?})", msg.author.name, msg.author.id, guild_id_opt);
             let guild_id = msg.guild_id.unwrap();
 
             let role_name = "FC Events";
@@ -263,7 +275,7 @@ impl EventHandler for Handler {
             let guild_emojis = match guild_id.emojis(&ctx.http).await {
                 Ok(emojis) => emojis,
                 Err(e) => {
-                    eprintln!("[ERROR] Could not fetch emojis for guild: {:?}. Aborting.", e);
+                    eprintln!("[ERROR] Could not fetch emojis for guild (ID: {}): {:?}. Aborting.", guild_id, e);
                     return;
                 }
             };
@@ -275,15 +287,15 @@ impl EventHandler for Handler {
                 );
 
                 if let Ok(sent_message) = msg.channel_id.say(&ctx.http, &message_content).await {
-                    println!("[ACTION] Successfully sent role assignment message for FC Events.");
+                    println!("[ACTION] Successfully sent role assignment message for FC Events (Msg ID: {}).", sent_message.id);
                     if let Err(e) = sent_message.react(&ctx.http, emoji.clone()).await {
-                        eprintln!("[ERROR] Failed to react to the message: {:?}", e);
+                        eprintln!("[ERROR] Failed to react to the message (ID: {}): {:?}", sent_message.id, e);
                     }
                 } else {
-                    eprintln!("[ERROR] Failed to send role assignment message for FC Events.");
+                    eprintln!("[ERROR] Failed to send role assignment message for FC Events in channel (ID: {}).", msg.channel_id);
                 }
             } else {
-                eprintln!("[ERROR] Could not find emoji ':{}:' on the server. Aborting.", emoji_name);
+                eprintln!("[ERROR] Could not find emoji ':{}:' on the server (Guild ID: {}). Aborting.", emoji_name, guild_id);
                 return;
             }
 
@@ -293,7 +305,7 @@ impl EventHandler for Handler {
 
         let lower_content = msg.content.to_lowercase();
         if lower_content.contains("istanbul") {
-            println!("[CMD] Triggered 'istanbul' response.");
+            println!("[CMD] Triggered 'istanbul' response for user '{}' (ID: {}) in channel (ID: {})", msg.author.name, msg.author.id, msg.channel_id);
             let image_path = Path::new("constantinople.png");
             if image_path.exists() {
                 let _ = msg.channel_id.send_files(&ctx.http, vec![image_path], |m| m.content("That's Constantinople!")).await;
@@ -301,7 +313,7 @@ impl EventHandler for Handler {
                 let _ = msg.channel_id.say(&ctx.http, "That's Constantinople! (but I couldn't find the image)").await;
             }
         } else if lower_content.contains("nuggies") {
-            println!("[CMD] Triggered 'nuggies' AI response.");
+            println!("[CMD] Triggered 'nuggies' AI response for user '{}' (ID: {}) in channel (ID: {})", msg.author.name, msg.author.id, msg.channel_id);
             let typing = msg.channel_id.start_typing(&ctx.http);
             let data = ctx.data.read().await;
             let gemini_api_key = data.get::<GeminiApiKey>().expect("Expected GeminiApiKey in TypeMap.").clone();
@@ -326,7 +338,7 @@ impl EventHandler for Handler {
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         if let Some(command) = interaction.application_command() {
-            println!("[SLASH CMD] Received command: '/{}'.", command.data.name);
+            println!("[SLASH CMD] Received command: '/{}' from user '{}' (ID: {}) in Guild (ID: {:?}) Channel (ID: {:?}).", command.data.name, command.user.name, command.user.id, command.guild_id, command.channel_id);
 
             let _ = command.create_interaction_response(&ctx.http, |response| {
                 response.kind(InteractionResponseType::DeferredChannelMessageWithSource)
@@ -518,17 +530,23 @@ impl EventHandler for Handler {
 }
 
 async fn get_or_create_role(ctx: &Context, guild_id: GuildId, role_name: &str) -> Option<Role> {
-    let roles = guild_id.roles(&ctx.http).await.ok()?;
+    let roles = match guild_id.roles(&ctx.http).await {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("[ERROR] Could not fetch roles for Guild (ID: {}): {:?}", guild_id, e);
+            return None;
+        }
+    };
 
     if let Some(role) = roles.values().find(|r| r.name == role_name) {
-        println!("[DEBUG] Found existing role: '{}'.", role_name);
+        println!("[DEBUG] Found existing role: '{}' (ID: {}).", role_name, role.id);
         return Some(role.clone());
     }
 
-    println!("[ACTION] Role '{}' not found. Creating it now...", role_name);
+    println!("[ACTION] Role '{}' not found in Guild (ID: {}). Creating it now...", role_name, guild_id);
     match guild_id.create_role(&ctx.http, |r| r.name(role_name).mentionable(true)).await {
         Ok(role) => {
-            println!("[SUCCESS] Created role: '{}'.", role.name);
+            println!("[SUCCESS] Created role: '{}' (ID: {}).", role.name, role.id);
             Some(role)
         },
         Err(e) => {
@@ -588,8 +606,14 @@ async fn call_gemini_api(api_key: &str, message: &str) -> Result<String, reqwest
     let client = HttpClient::new();
     let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
     let request_body = serde_json::json!({ "contents": [{ "parts": [{ "text": message }] }] });
+    println!("[API REQUEST - Gemini] Sending request for message: \"{}\"", message);
     let response = client.post(url).header("x-goog-api-key", api_key).json(&request_body).send().await?;
     let response_json = response.json::<serde_json::Value>().await?;
+
+    let response_string = serde_json::to_string(&response_json).unwrap_or_else(|_| "{}".to_string());
+    let truncated_response = response_string.chars().take(100).collect::<String>();
+    println!("[API RESPONSE - Gemini] First 100 chars: {}", truncated_response);
+
     let response_text = response_json["candidates"][0]["content"]["parts"][0]["text"]
         .as_str()
         .unwrap_or("Sorry, the Endpoint is currently overloaded, please try again.")
@@ -600,8 +624,14 @@ async fn call_gemini_api(api_key: &str, message: &str) -> Result<String, reqwest
 async fn get_random_fox_gif(api_key: &str) -> Result<String, reqwest::Error> {
     let client = HttpClient::new();
     let url = format!("https://tenor.googleapis.com/v2/search?q=fox&key={}&limit=50", api_key);
+    println!("[API REQUEST - Tenor] Sending request to fetch fox GIF.");
     let response = client.get(&url).send().await?;
     let response_json: Value = response.json().await?;
+
+    let response_string = serde_json::to_string(&response_json).unwrap_or_else(|_| "{}".to_string());
+    let truncated_response = response_string.chars().take(100).collect::<String>();
+    println!("[API RESPONSE - Tenor] First 100 chars: {}", truncated_response);
+
     let gifs = response_json["results"]
         .as_array()
         .unwrap_or(&vec![])
