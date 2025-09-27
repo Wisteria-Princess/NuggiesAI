@@ -605,7 +605,7 @@ impl serenity::prelude::TypeMapKey for TenorApiKey {
 async fn call_gemini_api(api_key: &str, message: &str) -> Result<String, reqwest::Error> {
     let client = HttpClient::new();
     // Corrected the model name in the URL from "gemini-1.5-flash" to "gemini-1.5-flash-latest"
-    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent";
+    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
     let request_body = serde_json::json!({ "contents": [{ "parts": [{ "text": message }] }] });
 
     println!("[API REQUEST - Gemini] Sending request for message: \"{}\"", message);
@@ -621,7 +621,7 @@ async fn call_gemini_api(api_key: &str, message: &str) -> Result<String, reqwest
     let response_string = serde_json::to_string(&response_json).unwrap_or_else(|_| "{}".to_string());
     let truncated_response = response_string.chars().take(100).collect::<String>();
     println!("[API RESPONSE - Gemini] First 100 chars: {}", truncated_response);
-    
+
     if let Some(candidates) = response_json.get("candidates") {
         let response_text = candidates[0]["content"]["parts"][0]["text"]
             .as_str()
