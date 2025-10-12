@@ -5,7 +5,10 @@ use serenity::{
         channel::Message,
         gateway::Ready,
         id::GuildId,
-        application::interaction::{Interaction, InteractionResponseType},
+        application::{
+            interaction::{Interaction, InteractionResponseType},
+            command::Command,
+        },
         guild::Role,
         channel::Reaction,
     },
@@ -134,7 +137,7 @@ impl EventHandler for Handler {
     async fn ready(&self, _ctx: Context, ready: Ready) {
         println!("[INFO] Bot is connected as {} (ID: {})", ready.user.name, ready.user.id);
 
-        let commands = serenity::model::application::command::Command::set_global_application_commands(&_ctx.http, |commands| {
+        let commands = Command::set_global_application_commands(&_ctx.http, |commands| {
             commands
                 .create_application_command(|command| {
                     command.name("nuggies").description("Chat with Nuggies AI")
@@ -180,6 +183,9 @@ impl EventHandler for Handler {
                 })
                 .create_application_command(|command| {
                     command.name("slots").description("Spend 5 nuggets for a chance to win big!")
+                })
+                .create_application_command(|command| {
+                    command.name("help").description("Shows a list of all available commands")
                 })
         })
             .await;
@@ -371,7 +377,8 @@ impl EventHandler for Handler {
                         if let Some(question_text) = question_option.and_then(|opt| opt.value.as_ref().and_then(|v| v.as_str())) {
                             let data = ctx_clone.data.read().await;
                             let gemini_api_key = data.get::<GeminiApiKey>().unwrap().clone();
-                            let response = call_gemini_api(&gemini_api_key, question_text).await.unwrap_or_else(|_| "Sorry, I couldn't get a response right now.".to_string());
+                            let prompt = format!("{}\n\nKeep your answer below 1800 characters.", question_text);
+                            let response = call_gemini_api(&gemini_api_key, &prompt).await.unwrap_or_else(|_| "Sorry, I couldn't get a response right now.".to_string());
                             format!("<@{}> asked: {}\n\n{}", user_id.0, question_text, response)
                         } else { "Please provide a question.".to_string() }
                     },
@@ -516,6 +523,17 @@ impl EventHandler for Handler {
                             "You don't have a nuggetbox yet! Use `/daily` to get your first nuggets.".to_string()
                         }
                     },
+                    "help" => {
+                        "Here's a list of my commands:\n\n\
+                        **/nuggies `[message]`**: Chat with Nuggies AI.\n\
+                        **/ask `[question]`**: Ask the AI a question.\n\
+                        **/fox**: Get a random fox GIF.\n\
+                        **/translate `[language]` `[text]`**: Translate text to a specified language.\n\
+                        **/daily**: Claim your daily nuggets.\n\
+                        **/nuggetbox**: Check your personal amount of nuggets.\n\
+                        **/slots**: Spend 5 nuggets for a chance to win big!\n\
+                        **/help**: Shows this help message.".to_string()
+                    },
                     _ => "Unknown command.".to_string(),
                 };
 
@@ -604,8 +622,7 @@ impl serenity::prelude::TypeMapKey for TenorApiKey {
 
 async fn call_gemini_api(api_key: &str, message: &str) -> Result<String, reqwest::Error> {
     let client = HttpClient::new();
-    // Corrected the model name in the URL from "gemini-1.5-flash" to "gemini-1.5-flash-latest"
-    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
     let request_body = serde_json::json!({ "contents": [{ "parts": [{ "text": message }] }] });
 
     println!("[API REQUEST - Gemini] Sending request for message: \"{}\"", message);
