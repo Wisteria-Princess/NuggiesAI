@@ -181,6 +181,10 @@ impl EventHandler for Handler {
                 .create_application_command(|command| {
                     command.name("nuggetbox").description("Check your personal amount of nuggets")
                 })
+                // NEW: Register the leaderboard command
+                .create_application_command(|command| {
+                    command.name("leaderboard").description("Shows the top nugget holders")
+                })
                 .create_application_command(|command| {
                     command.name("slots").description("Spend 5 nuggets for a chance to win big!")
                 })
@@ -441,6 +445,39 @@ impl EventHandler for Handler {
                             "You don't have a nuggetbox yet! Use `/daily` to get your first nuggets.".to_string()
                         }
                     },
+                    // NEW: Implement the leaderboard command logic
+                    "leaderboard" => {
+                        let data = ctx_clone.data.read().await;
+                        let db = data.get::<DatabaseKey>().unwrap();
+                        let conn = db.pool.get().await.expect("Failed to get DB connection");
+
+                        match conn.query("SELECT user_id, nuggets FROM users ORDER BY nuggets DESC LIMIT 10", &[]).await {
+                            Ok(rows) => {
+                                if rows.is_empty() {
+                                    "The leaderboard is empty. Use `/daily` to get started!".to_string()
+                                } else {
+                                    let mut leaderboard_display = "🏆 **Nugget Leaderboard** 🏆\n\n".to_string();
+                                    for (i, row) in rows.iter().enumerate() {
+                                        let user_id_db: i64 = row.get(0);
+                                        let nuggets: i64 = row.get(1);
+                                        let rank = i + 1;
+                                        let medal = match rank {
+                                            1 => "🥇",
+                                            2 => "🥈",
+                                            3 => "🥉",
+                                            _ => "🔹",
+                                        };
+                                        leaderboard_display.push_str(&format!("{} <@{}>: **{}** nuggets\n", medal, user_id_db, nuggets));
+                                    }
+                                    leaderboard_display
+                                }
+                            },
+                            Err(e) => {
+                                eprintln!("[ERROR] Failed to query leaderboard: {:?}", e);
+                                "Sorry, I couldn't fetch the leaderboard right now.".to_string()
+                            }
+                        }
+                    },
                     "slots" => {
                         let data = ctx_clone.data.read().await;
                         let db = data.get::<DatabaseKey>().unwrap();
@@ -531,6 +568,7 @@ impl EventHandler for Handler {
                         **/translate `[language]` `[text]`**: Translate text to a specified language.\n\
                         **/daily**: Claim your daily nuggets.\n\
                         **/nuggetbox**: Check your personal amount of nuggets.\n\
+                        **/leaderboard**: Shows the top nugget holders.\n\
                         **/slots**: Spend 5 nuggets for a chance to win big!\n\
                         **/help**: Shows this help message.".to_string()
                     },
