@@ -7,7 +7,7 @@ use serenity::{
         id::GuildId,
         application::{
             interaction::{Interaction, InteractionResponseType},
-            command::Command,
+            command::{Command, CommandOptionType},
         },
         guild::Role,
         channel::Reaction,
@@ -144,7 +144,7 @@ impl EventHandler for Handler {
                         .create_option(|option| {
                             option.name("message")
                                 .description("Your message to Nuggies")
-                                .kind(serenity::model::application::command::CommandOptionType::String)
+                                .kind(CommandOptionType::String)
                                 .required(true)
                         })
                 })
@@ -153,7 +153,7 @@ impl EventHandler for Handler {
                         .create_option(|option| {
                             option.name("question")
                                 .description("Your question for the AI")
-                                .kind(serenity::model::application::command::CommandOptionType::String)
+                                .kind(CommandOptionType::String)
                                 .required(true)
                         })
                 })
@@ -165,13 +165,13 @@ impl EventHandler for Handler {
                         .create_option(|option| {
                             option.name("language")
                                 .description("The language to translate to (e.g., 'French')")
-                                .kind(serenity::model::application::command::CommandOptionType::String)
+                                .kind(CommandOptionType::String)
                                 .required(true)
                         })
                         .create_option(|option| {
                             option.name("text")
                                 .description("The text to translate")
-                                .kind(serenity::model::application::command::CommandOptionType::String)
+                                .kind(CommandOptionType::String)
                                 .required(true)
                         })
                 })
@@ -187,9 +187,15 @@ impl EventHandler for Handler {
                 .create_application_command(|command| {
                     command.name("slots").description("Spend 5 nuggets for a chance to win big!")
                 })
-                // NEW: Register the funfact command
+                // MODIFIED: Update funfact command registration
                 .create_application_command(|command| {
-                    command.name("funfact").description("Get a random interesting fun fact")
+                    command.name("funfact").description("Get an interesting fun fact about a topic")
+                        .create_option(|option| {
+                            option.name("topic")
+                                .description("The topic for the fun fact (or 'random' for any topic)")
+                                .kind(CommandOptionType::String)
+                                .required(true)
+                        })
                 })
                 .create_application_command(|command| {
                     command.name("help").description("Shows a list of all available commands")
@@ -562,24 +568,39 @@ impl EventHandler for Handler {
                             "You don't have a nuggetbox yet! Use `/daily` to get your first nuggets.".to_string()
                         }
                     },
-                    // NEW: Implement the funfact command logic
+                    // MODIFIED: Implement the updated funfact command logic
                     "funfact" => {
+                        let topic_option = command.data.options.iter()
+                            .find(|opt| opt.name == "topic")
+                            .and_then(|opt| opt.value.as_ref())
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("random"); // Failsafe, should not happen due to required=true
+
                         let data = ctx_clone.data.read().await;
                         let gemini_api_key = data.get::<GeminiApiKey>().unwrap().clone();
                         let personality_prompt = get_nuggies_personality_prompt();
-                        let funfact_prompt = format!(
-                            "{}\n\nState a single random semi-interesting to very interesting fun fact with a maximum of 1800 symbols. \
-                            The topic can be from alternative subculture and music, history before 1800 (like ancient Rome, Vikings, the Byzantine Empire, the Ottoman Empire, feudal Japan, or medieval Europe), \
-                            geography, linguistics (primarily Indo-European languages, but Japanese, Chinese, or Korean are also great), physics, or even contemporary subjects. \
-                            Feel free to choose any topic, but just stick to one fact per response.",
-                            personality_prompt
-                        );
+
+                        let funfact_prompt = if topic_option.to_lowercase() == "random" {
+                            format!(
+                                "{}\n\nState a single random semi-interesting to very interesting fun fact with a maximum of 1800 symbols. \
+                                The topic can be from alternative subculture and music, history before 1800 (like ancient Rome, Vikings, the Byzantine Empire, the Ottoman Empire, feudal Japan, or medieval Europe), \
+                                geography, linguistics (primarily Indo-European languages, but Japanese, Chinese, or Korean are also great), physics, or even contemporary subjects. \
+                                Feel free to choose any topic, but just stick to one fact per response.",
+                                personality_prompt
+                            )
+                        } else {
+                            format!(
+                                "{}\n\nState a single, semi-interesting to very interesting fun fact about {}. Keep the fact concise and under 1800 characters.",
+                                personality_prompt, topic_option
+                            )
+                        };
 
                         call_gemini_api(&gemini_api_key, &funfact_prompt)
                             .await
                             .unwrap_or_else(|_| "My fact-generating circuits seem to be on the fritz. Ask later.".to_string())
                     },
                     "help" => {
+                        // MODIFIED: Update help message
                         "Here's a list of my commands:\n\n\
                         **/nuggies `[message]`**: Chat with Nuggies AI.\n\
                         **/ask `[question]`**: Ask the AI a question.\n\
@@ -589,7 +610,7 @@ impl EventHandler for Handler {
                         **/nuggetbox**: Check your personal amount of nuggets.\n\
                         **/leaderboard**: Shows the top nugget holders.\n\
                         **/slots**: Spend 5 nuggets for a chance to win big!\n\
-                        **/funfact**: Get a random interesting fun fact.\n\
+                        **/funfact `[topic]`**: Get an interesting fun fact about a specific topic (use 'random' for a random topic).\n\
                         **/help**: Shows this help message.".to_string()
                     },
                     _ => "Unknown command.".to_string(),
