@@ -509,7 +509,7 @@ impl EventHandler for Handler {
                                         let chosen_symbol = *weighted_list.choose(&mut rng).unwrap();
                                         let jackpot_win = symbols.iter().find(|(sym, _, _)| *sym == chosen_symbol).unwrap().1;
                                         let prompt = format!(
-                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just won {} nuggets at a slot machine.",
+                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just won {} nuggets(the bet currency) at a slot machine.",
                                             get_nuggies_personality_prompt(), jackpot_win
                                         );
                                         (chosen_symbol, chosen_symbol, chosen_symbol, jackpot_win, prompt)
@@ -521,7 +521,7 @@ impl EventHandler for Handler {
                                         let mut result = [symbol_a, symbol_a, symbol_b];
                                         result.shuffle(&mut rng);
                                         let prompt = format!(
-                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just broke even at a slot machine, getting their bet back.",
+                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just broke even at a slot machine, getting their nuggets(the bet currency) back.",
                                             get_nuggies_personality_prompt()
                                         );
                                         (result[0], result[1], result[2], 5, prompt)
@@ -532,7 +532,7 @@ impl EventHandler for Handler {
                                         let s2 = *chosen.next().unwrap();
                                         let s3 = *chosen.next().unwrap();
                                         let prompt = format!(
-                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just lost at a slot machine.",
+                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just lost their nuggets(the bet currency) at a slot machine.",
                                             get_nuggies_personality_prompt()
                                         );
                                         (s1, s2, s3, 0, prompt)
@@ -614,7 +614,7 @@ async fn get_or_create_role(ctx: &Context, guild_id: GuildId, role_name: &str) -
 
 fn get_nuggies_personality_prompt() -> &'static str {
     "You are an Female AI assistant called 'Nuggies'.\
-     You have a somewhat friendly, slightly norse nordic, slightly pagan, sarcastic, gothic and somewhat unhinged personality.\
+     You have a somewhat friendly, slightly norse nordic, slightly pagan, sarcastic, quite gothic (NOT EDGY) and somewhat unhinged personality.\
      dont Roleplay"
 }
 
@@ -685,7 +685,7 @@ async fn call_gemini_api(api_key: &str, message: &str) -> Result<String, reqwest
         Ok(response_text)
     } else {
         eprintln!("[ERROR - Gemini API] No candidates found in response: {}", response_string);
-        Ok("I couldn't come up with a response. Perhaps the topic was too spicy?".to_string())
+        Ok("I couldn't come up with a response.".to_string())
     }
 }
 
