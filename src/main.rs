@@ -181,12 +181,15 @@ impl EventHandler for Handler {
                 .create_application_command(|command| {
                     command.name("nuggetbox").description("Check your personal amount of nuggets")
                 })
-                // NEW: Register the leaderboard command
                 .create_application_command(|command| {
                     command.name("leaderboard").description("Shows the top nugget holders")
                 })
                 .create_application_command(|command| {
                     command.name("slots").description("Spend 5 nuggets for a chance to win big!")
+                })
+                // NEW: Register the funfact command
+                .create_application_command(|command| {
+                    command.name("funfact").description("Get a random interesting fun fact")
                 })
                 .create_application_command(|command| {
                     command.name("help").description("Shows a list of all available commands")
@@ -445,7 +448,6 @@ impl EventHandler for Handler {
                             "You don't have a nuggetbox yet! Use `/daily` to get your first nuggets.".to_string()
                         }
                     },
-                    // NEW: Implement the leaderboard command logic
                     "leaderboard" => {
                         let data = ctx_clone.data.read().await;
                         let db = data.get::<DatabaseKey>().unwrap();
@@ -560,6 +562,23 @@ impl EventHandler for Handler {
                             "You don't have a nuggetbox yet! Use `/daily` to get your first nuggets.".to_string()
                         }
                     },
+                    // NEW: Implement the funfact command logic
+                    "funfact" => {
+                        let data = ctx_clone.data.read().await;
+                        let gemini_api_key = data.get::<GeminiApiKey>().unwrap().clone();
+                        let personality_prompt = get_nuggies_personality_prompt();
+                        let funfact_prompt = format!(
+                            "{}\n\nState a single random semi-interesting to very interesting fun fact with a maximum of 1800 symbols. \
+                            The topic can be from alternative subculture and music, history before 1800 (like ancient Rome, Vikings, the Byzantine Empire, the Ottoman Empire, feudal Japan, or medieval Europe), \
+                            geography, linguistics (primarily Indo-European languages, but Japanese, Chinese, or Korean are also great), physics, or even contemporary subjects. \
+                            Feel free to choose any topic, but just stick to one fact per response.",
+                            personality_prompt
+                        );
+
+                        call_gemini_api(&gemini_api_key, &funfact_prompt)
+                            .await
+                            .unwrap_or_else(|_| "My fact-generating circuits seem to be on the fritz. Ask later.".to_string())
+                    },
                     "help" => {
                         "Here's a list of my commands:\n\n\
                         **/nuggies `[message]`**: Chat with Nuggies AI.\n\
@@ -570,6 +589,7 @@ impl EventHandler for Handler {
                         **/nuggetbox**: Check your personal amount of nuggets.\n\
                         **/leaderboard**: Shows the top nugget holders.\n\
                         **/slots**: Spend 5 nuggets for a chance to win big!\n\
+                        **/funfact**: Get a random interesting fun fact.\n\
                         **/help**: Shows this help message.".to_string()
                     },
                     _ => "Unknown command.".to_string(),
@@ -660,7 +680,7 @@ impl serenity::prelude::TypeMapKey for TenorApiKey {
 
 async fn call_gemini_api(api_key: &str, message: &str) -> Result<String, reqwest::Error> {
     let client = HttpClient::new();
-    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
     let request_body = serde_json::json!({ "contents": [{ "parts": [{ "text": message }] }] });
 
     println!("[API REQUEST - Gemini] Sending request for message: \"{}\"", message);
@@ -678,11 +698,19 @@ async fn call_gemini_api(api_key: &str, message: &str) -> Result<String, reqwest
     println!("[API RESPONSE - Gemini] First 100 chars: {}", truncated_response);
 
     if let Some(candidates) = response_json.get("candidates") {
-        let response_text = candidates[0]["content"]["parts"][0]["text"]
-            .as_str()
-            .unwrap_or("Sorry, the Endpoint is currently overloaded, please try again.")
-            .to_string();
-        Ok(response_text)
+        if let Some(text) = candidates
+            .get(0)
+            .and_then(|c| c.get("content"))
+            .and_then(|c| c.get("parts"))
+            .and_then(|p| p.get(0))
+            .and_then(|p| p.get("text"))
+            .and_then(|t| t.as_str())
+        {
+            Ok(text.to_string())
+        } else {
+            eprintln!("[ERROR - Gemini API] 'text' field missing in candidate: {}", response_string);
+            Ok("I couldn't come up with a response.".to_string())
+        }
     } else {
         eprintln!("[ERROR - Gemini API] No candidates found in response: {}", response_string);
         Ok("I couldn't come up with a response.".to_string())
