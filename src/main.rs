@@ -701,7 +701,7 @@ impl serenity::prelude::TypeMapKey for TenorApiKey {
 
 async fn call_gemini_api(api_key: &str, message: &str) -> Result<String, reqwest::Error> {
     let client = HttpClient::new();
-    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
+    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
     let request_body = serde_json::json!({ "contents": [{ "parts": [{ "text": message }] }] });
 
     println!("[API REQUEST - Gemini] Sending request for message: \"{}\"", message);
