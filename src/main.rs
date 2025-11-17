@@ -187,7 +187,6 @@ impl EventHandler for Handler {
                 .create_application_command(|command| {
                     command.name("slots").description("Spend 5 nuggets for a chance to win big!")
                 })
-                // MODIFIED: Update funfact command registration
                 .create_application_command(|command| {
                     command.name("funfact").description("Get an interesting fun fact about a topic")
                         .create_option(|option| {
@@ -498,16 +497,18 @@ impl EventHandler for Handler {
                             if nuggets < 5 {
                                 "You don't have enough nuggets to play the slots! You need at least 5.".to_string()
                             } else {
+                                // MODIFIED: Increased reward values by ~25% and kept them as multiples of 5
                                 let symbols = [
-                                    ("🍒", 10, 10), ("🍊", 25, 8), ("🔔", 40, 6),
-                                    ("🍀", 75, 4), ("💎", 250, 2),
+                                    ("🍒", 15, 10), ("🍊", 30, 8), ("🔔", 50, 6),
+                                    ("🍀", 95, 4), ("💎", 315, 2),
                                 ];
 
                                 let (s1, s2, s3, winnings, response_prompt) = {
                                     let mut rng = rand::thread_rng();
                                     let outcome_roll = rng.gen_range(1..=100);
 
-                                    if outcome_roll <= 5 {
+                                    // MODIFIED: Increased jackpot chance from 5% to 10%
+                                    if outcome_roll <= 10 {
                                         let mut weighted_list = Vec::new();
                                         for (symbol, _, weight) in &symbols {
                                             for _ in 0..*weight {
@@ -521,7 +522,8 @@ impl EventHandler for Handler {
                                             get_nuggies_personality_prompt(), jackpot_win
                                         );
                                         (chosen_symbol, chosen_symbol, chosen_symbol, jackpot_win, prompt)
-                                    } else if outcome_roll <= 20 {
+                                    // MODIFIED: Increased break-even chance from 15% to 25%
+                                    } else if outcome_roll <= 35 {
                                         let all_symbols: Vec<&str> = symbols.iter().map(|(s, _, _)| *s).collect();
                                         let mut chosen = all_symbols.choose_multiple(&mut rng, 2);
                                         let symbol_a = *chosen.next().unwrap();
@@ -568,13 +570,12 @@ impl EventHandler for Handler {
                             "You don't have a nuggetbox yet! Use `/daily` to get your first nuggets.".to_string()
                         }
                     },
-                    // MODIFIED: Implement the updated funfact command logic
                     "funfact" => {
                         let topic_option = command.data.options.iter()
                             .find(|opt| opt.name == "topic")
                             .and_then(|opt| opt.value.as_ref())
                             .and_then(|v| v.as_str())
-                            .unwrap_or("random"); // Failsafe, should not happen due to required=true
+                            .unwrap_or("random");
 
                         let data = ctx_clone.data.read().await;
                         let gemini_api_key = data.get::<GeminiApiKey>().unwrap().clone();
@@ -600,7 +601,6 @@ impl EventHandler for Handler {
                             .unwrap_or_else(|_| "My fact-generating circuits seem to be on the fritz. Ask later.".to_string())
                     },
                     "help" => {
-                        // MODIFIED: Update help message
                         "Here's a list of my commands:\n\n\
                         **/nuggies `[message]`**: Chat with Nuggies AI.\n\
                         **/ask `[question]`**: Ask the AI a question.\n\
