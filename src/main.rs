@@ -505,9 +505,8 @@ impl EventHandler for Handler {
                                 let (s1, s2, s3, winnings, response_prompt) = {
                                     let mut rng = rand::thread_rng();
                                     let outcome_roll = rng.gen_range(1..=100);
-
-                                    // MODIFIED: Increased jackpot chance from 5% to 10%
-                                    if outcome_roll <= 10 {
+                                
+                                    if outcome_roll <= 20 {
                                         let mut weighted_list = Vec::new();
                                         for (symbol, _, weight) in &symbols {
                                             for _ in 0..*weight {
@@ -521,8 +520,8 @@ impl EventHandler for Handler {
                                             get_nuggies_personality_prompt(), jackpot_win
                                         );
                                         (chosen_symbol, chosen_symbol, chosen_symbol, jackpot_win, prompt)
-                                    // MODIFIED: Increased break-even chance from 15% to 25%
-                                    } else if outcome_roll <= 35 {
+                                
+                                    } else if outcome_roll <= 50 {
                                         let all_symbols: Vec<&str> = symbols.iter().map(|(s, _, _)| *s).collect();
                                         let mut chosen = all_symbols.choose_multiple(&mut rng, 2);
                                         let symbol_a = *chosen.next().unwrap();
