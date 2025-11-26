@@ -497,10 +497,9 @@ impl EventHandler for Handler {
                             if nuggets < 5 {
                                 "You don't have enough nuggets to play the slots! You need at least 5.".to_string()
                             } else {
-                                // MODIFIED: Increased reward values by ~25% and kept them as multiples of 5
                                 let symbols = [
-                                    ("🍒", 15, 10), ("🍊", 30, 8), ("🔔", 50, 6),
-                                    ("🍀", 95, 4), ("💎", 315, 2),
+                                    ("🍒", 15, 20), ("🍊", 30, 16), ("🔔", 50, 12),
+                                    ("🍀", 95, 8), ("💎", 250, 4), ("🦊", 400, 1),
                                 ];
 
                                 let (s1, s2, s3, winnings, response_prompt) = {
