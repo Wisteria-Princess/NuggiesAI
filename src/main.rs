@@ -185,7 +185,14 @@ impl EventHandler for Handler {
                     command.name("leaderboard").description("Shows the top nugget holders")
                 })
                 .create_application_command(|command| {
-                    command.name("slots").description("Spend 5 nuggets for a chance to win big!")
+                    command.name("slots").description("Spend nuggets for a chance to win big!")
+                        .create_option(|option| {
+                            option.name("amount")
+                                .description("The amount of nuggets to bet. Defaults to 5.")
+                                .kind(CommandOptionType::Integer)
+                                .required(false)
+                                .min_int_value(1)
+                        })
                 })
                 .create_application_command(|command| {
                     command.name("funfact").description("Get an interesting fun fact about a topic")
@@ -491,15 +498,21 @@ impl EventHandler for Handler {
                         let conn = db.pool.get().await.expect("Failed to get DB connection");
                         let gemini_api_key = data.get::<GeminiApiKey>().unwrap().clone();
                         let user_id_i64 = *user_id.as_u64() as i64;
+                        
+                        let bet_amount = command.data.options.iter()
+                            .find(|opt| opt.name == "amount")
+                            .and_then(|opt| opt.value.as_ref())
+                            .and_then(|v| v.as_i64())
+                            .unwrap_or(5);
 
                         if let Ok(row) = conn.query_one("SELECT nuggets FROM users WHERE user_id = $1", &[&user_id_i64]).await {
                             let nuggets: i64 = row.get(0);
-                            if nuggets < 5 {
-                                "You don't have enough nuggets to play the slots! You need at least 5.".to_string()
+                            if nuggets < bet_amount {
+                                format!("You don't have enough nuggets to play the slots! You need at least {}, but you only have {}.", bet_amount, nuggets)
                             } else {
                                 let symbols = [
-                                    ("🍒", 15, 20), ("🍊", 30, 16), ("🔔", 50, 12),
-                                    ("🍀", 95, 8), ("💎", 250, 4), ("🦊", 400, 1),
+                                    ("🍒", 3, 20), ("🍊", 6, 16), ("🔔", 10, 12),
+                                    ("🍀", 20, 8), ("💎", 50, 4), ("🦊", 100, 1),
                                 ];
 
                                 let (s1, s2, s3, winnings, response_prompt) = {
@@ -514,7 +527,8 @@ impl EventHandler for Handler {
                                             }
                                         }
                                         let chosen_symbol = *weighted_list.choose(&mut rng).unwrap();
-                                        let jackpot_win = symbols.iter().find(|(sym, _, _)| *sym == chosen_symbol).unwrap().1;
+                                        let (_, jackpot_multiplier, _) = symbols.iter().find(|(sym, _, _)| *sym == chosen_symbol).unwrap();
+                                        let jackpot_win = bet_amount * jackpot_multiplier;
                                         let prompt = format!(
                                             "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just won {} nuggets(the bet currency) at a slot machine.",
                                             get_nuggies_personality_prompt(), jackpot_win
@@ -529,10 +543,10 @@ impl EventHandler for Handler {
                                         let mut result = [symbol_a, symbol_a, symbol_b];
                                         result.shuffle(&mut rng);
                                         let prompt = format!(
-                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just broke even at a slot machine, getting their nuggets(the bet currency) back.",
-                                            get_nuggies_personality_prompt()
+                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just broke even at a slot machine, getting their {} nuggets(the bet currency) back.",
+                                            get_nuggies_personality_prompt(), bet_amount
                                         );
-                                        (result[0], result[1], result[2], 5, prompt)
+                                        (result[0], result[1], result[2], bet_amount, prompt)
                                     } else {
                                         let all_symbols: Vec<&str> = symbols.iter().map(|(s, _, _)| *s).collect();
                                         let mut chosen = all_symbols.choose_multiple(&mut rng, 3);
@@ -540,15 +554,15 @@ impl EventHandler for Handler {
                                         let s2 = *chosen.next().unwrap();
                                         let s3 = *chosen.next().unwrap();
                                         let prompt = format!(
-                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just lost their nuggets(the bet currency) at a slot machine.",
-                                            get_nuggies_personality_prompt()
+                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just lost their {} nuggets(the bet currency) at a slot machine.",
+                                            get_nuggies_personality_prompt(), bet_amount
                                         );
                                         (s1, s2, s3, 0, prompt)
                                     }
                                 };
 
                                 let display = format!("[ {} | {} | {} ]", s1, s2, s3);
-                                let new_total = nuggets - 5 + winnings;
+                                let new_total = nuggets - bet_amount + winnings;
                                 let params: &[&(dyn ToSql + Sync)] = &[&new_total, &user_id_i64];
                                 conn.execute("UPDATE users SET nuggets = $1 WHERE user_id = $2", params).await.unwrap();
 
@@ -556,10 +570,10 @@ impl EventHandler for Handler {
                                     .await
                                     .unwrap_or_else(|_| "...".to_string());
 
-                                if winnings > 5 {
+                                if winnings > bet_amount {
                                     format!("{}\n\nYou won {} nuggets!\n{}", display, winnings, witty_response)
-                                } else if winnings == 5 {
-                                    format!("{}\n\nYou get your 5 nuggets back.\n{}", display, witty_response)
+                                } else if winnings == bet_amount {
+                                    format!("{}\n\nYou get your {} nuggets back.\n{}", display, bet_amount, witty_response)
                                 } else {
                                     format!("{}\n\n{}", display, witty_response)
                                 }
@@ -607,7 +621,7 @@ impl EventHandler for Handler {
                         **/daily**: Claim your daily nuggets.\n\
                         **/nuggetbox**: Check your personal amount of nuggets.\n\
                         **/leaderboard**: Shows the top nugget holders.\n\
-                        **/slots**: Spend 5 nuggets for a chance to win big!\n\
+                        **/slots `[amount]`**: Spend nuggets for a chance to win big! (Defaults to 5).\n\
                         **/funfact `[topic]`**: Get an interesting fun fact about a specific topic (use 'random' for a random topic).\n\
                         **/help**: Shows this help message.".to_string()
                     },
