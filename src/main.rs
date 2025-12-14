@@ -555,7 +555,7 @@ impl EventHandler for Handler {
                                         let s2 = *chosen.next().unwrap();
                                         let s3 = *chosen.next().unwrap();
                                         let prompt = format!(
-                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just lost their {} nuggets(the bet currency) at a slot machine.",
+                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just lost their {} nuggets(the bet currency) at a slot machine. They were eaten by a Fox",
                                             get_nuggies_personality_prompt(), bet_amount
                                         );
                                         (s1, s2, s3, 0, prompt)
