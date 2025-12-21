@@ -518,47 +518,63 @@ impl EventHandler for Handler {
 
                                 let (s1, s2, s3, winnings, response_prompt) = {
                                     let mut rng = rand::thread_rng();
-                                    let outcome_roll = rng.gen_range(1..=100);
-                                
-                                    if outcome_roll <= 10 { // Win condition (10% chance)
-                                        let mut weighted_list = Vec::new();
-                                        for (symbol, _, weight) in &symbols {
-                                            for _ in 0..*weight {
-                                                weighted_list.push(*symbol);
-                                            }
-                                        }
-                                        let chosen_symbol = *weighted_list.choose(&mut rng).unwrap();
-                                        let (_, jackpot_multiplier, _) = symbols.iter().find(|(sym, _, _)| *sym == chosen_symbol).unwrap();
-                                        let jackpot_win = bet_amount * jackpot_multiplier;
-                                        let prompt = format!(
-                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just won {} nuggets(the bet currency) at a slot machine.",
-                                            get_nuggies_personality_prompt(), jackpot_win
-                                        );
-                                        (chosen_symbol, chosen_symbol, chosen_symbol, jackpot_win, prompt)
-                                
-                                    } else if outcome_roll <= 30 { // Draw condition (20% chance, 11-30)
-                                        let all_symbols: Vec<&str> = symbols.iter().map(|(s, _, _)| *s).collect();
-                                        let mut chosen = all_symbols.choose_multiple(&mut rng, 2);
-                                        let symbol_a = *chosen.next().unwrap();
-                                        let symbol_b = *chosen.next().unwrap();
-                                        let mut result = [symbol_a, symbol_a, symbol_b];
-                                        result.shuffle(&mut rng);
-                                        let prompt = format!(
-                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just broke even at a slot machine, getting their {} nuggets(the bet currency) back.",
-                                            get_nuggies_personality_prompt(), bet_amount
-                                        );
-                                        (result[0], result[1], result[2], bet_amount, prompt)
-                                    } else { // Lose condition (70% chance, 31-100)
+                                    // Check if the user ID is the specific one that should always lose.
+                                    if user_id.0 == 203966547805470720 {
+                                        // Force a loss
                                         let all_symbols: Vec<&str> = symbols.iter().map(|(s, _, _)| *s).collect();
                                         let mut chosen = all_symbols.choose_multiple(&mut rng, 3);
-                                        let s1 = *chosen.next().unwrap();
-                                        let s2 = *chosen.next().unwrap();
-                                        let s3 = *chosen.next().unwrap();
+                                        let s1 = *chosen.next().unwrap_or(&"🍒");
+                                        let s2 = *chosen.next().unwrap_or(&"🍊");
+                                        let s3 = *chosen.next().unwrap_or(&"🔔");
                                         let prompt = format!(
                                             "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just lost their {} nuggets(the bet currency) at a slot machine. They were eaten by a Fox",
                                             get_nuggies_personality_prompt(), bet_amount
                                         );
                                         (s1, s2, s3, 0, prompt)
+                                    } else {
+                                        // Original logic for all other users
+                                        let outcome_roll = rng.gen_range(1..=100);
+                                    
+                                        if outcome_roll <= 10 { // Win condition (10% chance)
+                                            let mut weighted_list = Vec::new();
+                                            for (symbol, _, weight) in &symbols {
+                                                for _ in 0..*weight {
+                                                    weighted_list.push(*symbol);
+                                                }
+                                            }
+                                            let chosen_symbol = *weighted_list.choose(&mut rng).unwrap();
+                                            let (_, jackpot_multiplier, _) = symbols.iter().find(|(sym, _, _)| *sym == chosen_symbol).unwrap();
+                                            let jackpot_win = bet_amount * jackpot_multiplier;
+                                            let prompt = format!(
+                                                "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just won {} nuggets(the bet currency) at a slot machine.",
+                                                get_nuggies_personality_prompt(), jackpot_win
+                                            );
+                                            (chosen_symbol, chosen_symbol, chosen_symbol, jackpot_win, prompt)
+                                    
+                                        } else if outcome_roll <= 30 { // Draw condition (20% chance, 11-30)
+                                            let all_symbols: Vec<&str> = symbols.iter().map(|(s, _, _)| *s).collect();
+                                            let mut chosen = all_symbols.choose_multiple(&mut rng, 2);
+                                            let symbol_a = *chosen.next().unwrap();
+                                            let symbol_b = *chosen.next().unwrap();
+                                            let mut result = [symbol_a, symbol_a, symbol_b];
+                                            result.shuffle(&mut rng);
+                                            let prompt = format!(
+                                                "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just broke even at a slot machine, getting their {} nuggets(the bet currency) back.",
+                                                get_nuggies_personality_prompt(), bet_amount
+                                            );
+                                            (result[0], result[1], result[2], bet_amount, prompt)
+                                        } else { // Lose condition (70% chance, 31-100)
+                                            let all_symbols: Vec<&str> = symbols.iter().map(|(s, _, _)| *s).collect();
+                                            let mut chosen = all_symbols.choose_multiple(&mut rng, 3);
+                                            let s1 = *chosen.next().unwrap();
+                                            let s2 = *chosen.next().unwrap();
+                                            let s3 = *chosen.next().unwrap();
+                                            let prompt = format!(
+                                                "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just lost their {} nuggets(the bet currency) at a slot machine. They were eaten by a Fox",
+                                                get_nuggies_personality_prompt(), bet_amount
+                                            );
+                                            (s1, s2, s3, 0, prompt)
+                                        }
                                     }
                                 };
 
@@ -714,7 +730,7 @@ impl serenity::prelude::TypeMapKey for TenorApiKey {
 
 async fn call_gemini_api(api_key: &str, message: &str) -> Result<String, reqwest::Error> {
     let client = HttpClient::new();
-    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
     let request_body = serde_json::json!({ "contents": [{ "parts": [{ "text": message }] }] });
 
     println!("[API REQUEST - Gemini] Sending request for message: \"{}\"", message);
