@@ -435,7 +435,7 @@ impl EventHandler for Handler {
                             if last_daily == Some(today) {
                                 "You have already claimed your daily nuggets. Please try again tomorrow.".to_string()
                             } else {
-                                let daily_nuggets: i64 = rand::thread_rng().gen_range(1..=15);
+                                let daily_nuggets: i64 = rand::thread_rng().gen_range(1..=25);
                                 let new_total = nuggets + daily_nuggets;
                                 let update_params: &[&(dyn ToSql + Sync)] = &[&new_total, &today, &user_id_i64];
                                 conn.execute("UPDATE users SET nuggets = $1, last_daily = $2 WHERE user_id = $3", update_params).await.unwrap();
