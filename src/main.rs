@@ -104,6 +104,11 @@ async fn handle_reaction_role(ctx: &Context, reaction: &Reaction, add: bool) {
             roles_map.get(emoji_name).copied()
         } else if msg.content.contains("role for event notifications") && emoji_name == "danseparty" {
             Some("FC Events")
+        } else if msg.content.starts_with("Who are you?") {
+            let roles_map: HashMap<&str, &str> = [
+                ("dodo", "Bot"), ("lurkk", "FC Member"), ("flowah", "Fren"),
+            ].iter().cloned().collect();
+            roles_map.get(emoji_name).copied()
         } else {
             None
         };
@@ -323,6 +328,61 @@ impl EventHandler for Handler {
             } else {
                 eprintln!("[ERROR] Could not find emoji ':{}:' on the server (Guild ID: {}). Aborting.", emoji_name, guild_id);
                 return;
+            }
+
+            let _ = msg.delete(&ctx.http).await;
+            return;
+        }
+        else if msg.author.id.0 == 241614046913101825 && msg.content == "assignrole:verification" {
+            println!("[CMD] Triggered 'assignrole:verification' by user '{}' (ID: {}) in Guild (ID: {:?})", msg.author.name, msg.author.id, guild_id_opt);
+            let guild_id = msg.guild_id.unwrap();
+
+            let emoji_names = ["dodo", "lurkk", "flowah"];
+
+            if get_or_create_role(&ctx, guild_id, "Bot").await.is_none() {
+                eprintln!("[ERROR] Failed to get or create role: 'Bot'. Aborting.");
+                return;
+            }
+            if get_or_create_role(&ctx, guild_id, "FC Member").await.is_none() {
+                eprintln!("[ERROR] Failed to get or create role: 'FC Member'. Aborting.");
+                return;
+            }
+
+            let guild_emojis = match guild_id.emojis(&ctx.http).await {
+                Ok(emojis) => emojis,
+                Err(e) => {
+                    eprintln!("[ERROR] Could not fetch emojis for guild (ID: {}): {:?}. Aborting.", guild_id, e);
+                    return;
+                }
+            };
+
+            let mut emojis = Vec::new();
+            for name in &emoji_names {
+                if let Some(emoji) = guild_emojis.iter().find(|e| e.name == *name) {
+                    emojis.push(emoji.clone());
+                } else {
+                    eprintln!("[ERROR] Could not find emoji '{}' on the server (Guild ID: {}). Aborting.", name, guild_id);
+                    return;
+                }
+            }
+
+            let message_content = format!(
+                "Who are you?\n{} Bot\n{} FC Member\n{} Friend",
+                emojis[0], emojis[1], emojis[2]
+            );
+
+            match msg.channel_id.say(&ctx.http, &message_content).await {
+                Ok(sent_message) => {
+                    println!("[ACTION] Successfully sent verification role message (ID: {}) to channel (ID: {}).", sent_message.id, sent_message.channel_id);
+                    for emoji in emojis {
+                        if let Err(e) = sent_message.react(&ctx.http, emoji).await {
+                            eprintln!("[ERROR] Failed to react to message (ID: {}): {:?}", sent_message.id, e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[ERROR] Failed to send verification role message in channel (ID: {}): {:?}", msg.channel_id, e);
+                }
             }
 
             let _ = msg.delete(&ctx.http).await;
