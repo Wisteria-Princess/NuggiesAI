@@ -4,7 +4,7 @@ use serenity::{
     model::{
         channel::Message,
         gateway::Ready,
-        id::GuildId,
+        id::{ChannelId, GuildId},
         application::{
             interaction::{Interaction, InteractionResponseType},
             command::{Command, CommandOptionType},
@@ -141,6 +141,24 @@ async fn handle_reaction_role(ctx: &Context, reaction: &Reaction, add: bool) {
 impl EventHandler for Handler {
     async fn ready(&self, _ctx: Context, ready: Ready) {
         println!("[INFO] Bot is connected as {} (ID: {})", ready.user.name, ready.user.id);
+
+        let patch_channel_id = ChannelId(1412130150325289203);
+        let today_date = Utc::now().with_timezone(&Berlin).format("%Y-%m-%d").to_string();
+
+        let patch_notes = format!(
+            "**Patch Notes - {}**\n\n\
+            - Implemented automated patch note system on startup.\n\
+            - Added new verification role assignment triggered by the `assignrole:verification` command.\n\
+            - Users can now self-assign from the following roles: 'Stinki', 'FC Member', or 'Friend'.\n\
+            - The 'Stinki' role has been created to identify suspected spam accounts.",
+            today_date
+        );
+
+        if let Err(e) = patch_channel_id.say(&_ctx.http, &patch_notes).await {
+            eprintln!("[ERROR] Failed to send patch notes to channel {}: {:?}", patch_channel_id, e);
+        } else {
+            println!("[INFO] Successfully sent patch notes to channel {}.", patch_channel_id);
+        }
 
         let commands = Command::set_global_application_commands(&_ctx.http, |commands| {
             commands
