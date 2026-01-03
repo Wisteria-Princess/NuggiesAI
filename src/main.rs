@@ -106,7 +106,7 @@ async fn handle_reaction_role(ctx: &Context, reaction: &Reaction, add: bool) {
             Some("FC Events")
         } else if msg.content.starts_with("Who are you?") {
             let roles_map: HashMap<&str, &str> = [
-                ("dodo", "Bot"), ("lurkk", "FC Member"), ("flowah", "Fren"),
+                ("dodo", "Stinki"), ("lurkk", "FC Member"), ("flowah", "Fren"),
             ].iter().cloned().collect();
             roles_map.get(emoji_name).copied()
         } else {
@@ -339,8 +339,8 @@ impl EventHandler for Handler {
 
             let emoji_names = ["dodo", "lurkk", "flowah"];
 
-            if get_or_create_role(&ctx, guild_id, "Bot").await.is_none() {
-                eprintln!("[ERROR] Failed to get or create role: 'Bot'. Aborting.");
+            if get_or_create_role(&ctx, guild_id, "Stinki").await.is_none() {
+                eprintln!("[ERROR] Failed to get or create role: 'Stinki'. Aborting.");
                 return;
             }
             if get_or_create_role(&ctx, guild_id, "FC Member").await.is_none() {
@@ -367,7 +367,7 @@ impl EventHandler for Handler {
             }
 
             let message_content = format!(
-                "Who are you?\n{} Bot\n{} FC Member\n{} Friend",
+                "Who are you?\n{} Stinki\n{} FC Member\n{} Friend",
                 emojis[0], emojis[1], emojis[2]
             );
 
