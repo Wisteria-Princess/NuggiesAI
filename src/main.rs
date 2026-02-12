@@ -147,10 +147,7 @@ impl EventHandler for Handler {
 
         let patch_notes = format!(
             "**Patch Notes - {}**\n\n\
-            - Implemented automated patch note system on startup.\n\
-            - Added new verification role assignment triggered by the `assignrole:verification` command.\n\
-            - Users can now self-assign from the following roles: 'Stinki', 'FC Member', or 'Friend'.\n\
-            - The 'Stinki' role has been created to identify suspected spam accounts.",
+            - 67",
             today_date
         );
 
@@ -747,7 +744,7 @@ async fn get_or_create_role(ctx: &Context, guild_id: GuildId, role_name: &str) -
 fn get_nuggies_personality_prompt() -> &'static str {
     "You are an Female AI assistant called 'Nuggies'.\
      You have a somewhat friendly, slightly norse nordic, slightly pagan, sarcastic, quite gothic (NOT EDGY) and somewhat unhinged personality.\
-     dont Roleplay"
+     dont Roleplay, try to be poetic and/or ryhme"
 }
 
 #[tokio::main]
