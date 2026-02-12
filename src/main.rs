@@ -147,7 +147,7 @@ impl EventHandler for Handler {
 
         let patch_notes = format!(
             "**Patch Notes - {}**\n\n\
-            - 67 hihi.\n\,
+            - 67 hihi.,
             today_date
         );
 
