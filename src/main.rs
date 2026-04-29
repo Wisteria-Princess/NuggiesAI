@@ -65,6 +65,11 @@ impl serenity::prelude::TypeMapKey for DatabaseKey {
     type Value = Arc<Database>;
 }
 
+struct NuggiesPersonality;
+impl serenity::prelude::TypeMapKey for NuggiesPersonality {
+    type Value = String;
+}
+
 async fn handle_reaction_role(ctx: &Context, reaction: &Reaction, add: bool) {
     if reaction.user(&ctx.http).await.map_or(true, |u| u.bot) {
         return;
@@ -146,7 +151,8 @@ impl EventHandler for Handler {
 
         let patch_notes = format!(
             "**Patch Notes - {}**\n\n\
-            - Switched to Mistral Studio API for AI responses",
+            - Switched to Mistral Studio API for AI responses\n\
+            - Nuggies personality is now configurable via NUGGIES_PERSONALITY environment variable",
             today_date
         );
 
@@ -417,7 +423,7 @@ impl EventHandler for Handler {
             let typing = msg.channel_id.start_typing(&ctx.http);
             let data = ctx.data.read().await;
             let mistral_api_key = data.get::<MistralApiKey>().expect("Expected MistralApiKey in TypeMap.").clone();
-            let personality_prompt = get_nuggies_personality_prompt();
+            let personality_prompt = data.get::<NuggiesPersonality>().unwrap().clone();
             let modified_prompt = format!(
                 "{}\nRespond to the following message as Nuggies and keep the response at one or 2 sentences:\n\n{}",
                 personality_prompt, &msg.content
@@ -449,13 +455,13 @@ impl EventHandler for Handler {
             let ctx_clone = ctx.clone();
 
             tokio::spawn(async move {
+                let data = ctx_clone.data.read().await;
                 let response_content = match command_name.as_str() {
                     "nuggies" => {
                         let message_option = command.data.options.iter().find(|opt| opt.name == "message");
                         if let Some(message_text) = message_option.and_then(|opt| opt.value.as_ref().and_then(|v| v.as_str())) {
-                            let data = ctx_clone.data.read().await;
                             let mistral_api_key = data.get::<MistralApiKey>().unwrap().clone();
-                            let personality_prompt = get_nuggies_personality_prompt();
+                            let personality_prompt = data.get::<NuggiesPersonality>().unwrap().clone();
                             let prompt = format!(
                                 "{}\nRespond to the following message as Nuggies:\n\n{}",
                                 personality_prompt, message_text
@@ -469,7 +475,6 @@ impl EventHandler for Handler {
                     "ask" => {
                         let question_option = command.data.options.iter().find(|opt| opt.name == "question");
                         if let Some(question_text) = question_option.and_then(|opt| opt.value.as_ref().and_then(|v| v.as_str())) {
-                            let data = ctx_clone.data.read().await;
                             let mistral_api_key = data.get::<MistralApiKey>().unwrap().clone();
                             let prompt = format!("{}\n\nKeep your answer below 1800 characters.", question_text);
                             let response = call_mistral_api(&mistral_api_key, &prompt).await.unwrap_or_else(|_| "Sorry, I couldn't get a response right now.".to_string());
@@ -481,19 +486,16 @@ impl EventHandler for Handler {
                         let text_opt = command.data.options.iter().find(|o| o.name == "text").and_then(|o| o.value.as_ref().and_then(|v| v.as_str()));
 
                         if let (Some(language), Some(text)) = (lang_opt, text_opt) {
-                            let data = ctx_clone.data.read().await;
                             let mistral_api_key = data.get::<MistralApiKey>().unwrap().clone();
                             let prompt = format!("Translate the following text to {} exactly and only output the translated text:\n\n{}", language, text);
                             call_mistral_api(&mistral_api_key, &prompt).await.unwrap_or_else(|_| "Sorry, I couldn't translate that.".to_string())
                         } else { "Please provide both a language and text.".to_string() }
                     },
                     "fox" => {
-                        let data = ctx_clone.data.read().await;
                         let tenor_api_key = data.get::<TenorApiKey>().unwrap().clone();
                         get_random_fox_gif(&tenor_api_key).await.unwrap_or_else(|_| "https://media.tenor.com/YxT1w3VX5BAAAAAM/fox-dance.gif".to_string())
                     },
                     "daily" => {
-                        let data = ctx_clone.data.read().await;
                         let db = data.get::<DatabaseKey>().unwrap();
                         let conn = db.pool.get().await.expect("Failed to get DB connection");
                         let user_id_i64 = *user_id.as_u64() as i64;
@@ -523,7 +525,6 @@ impl EventHandler for Handler {
                         }
                     },
                     "nuggetbox" => {
-                        let data = ctx_clone.data.read().await;
                         let db = data.get::<DatabaseKey>().unwrap();
                         let conn = db.pool.get().await.expect("Failed to get DB connection");
                         let user_id_i64 = *user_id.as_u64() as i64;
@@ -536,7 +537,6 @@ impl EventHandler for Handler {
                         }
                     },
                     "leaderboard" => {
-                        let data = ctx_clone.data.read().await;
                         let db = data.get::<DatabaseKey>().unwrap();
                         let conn = db.pool.get().await.expect("Failed to get DB connection");
 
@@ -568,10 +568,10 @@ impl EventHandler for Handler {
                         }
                     },
                     "slots" => {
-                        let data = ctx_clone.data.read().await;
                         let db = data.get::<DatabaseKey>().unwrap();
                         let conn = db.pool.get().await.expect("Failed to get DB connection");
                         let mistral_api_key = data.get::<MistralApiKey>().unwrap().clone();
+                        let personality_prompt = data.get::<NuggiesPersonality>().unwrap().clone();
                         let user_id_i64 = *user_id.as_u64() as i64;
 
                         let bet_amount = command.data.options.iter()
@@ -606,7 +606,7 @@ impl EventHandler for Handler {
                                         let jackpot_win = bet_amount * jackpot_multiplier;
                                         let prompt = format!(
                                             "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just won {} nuggets(the bet currency) at a slot machine.",
-                                            get_nuggies_personality_prompt(), jackpot_win
+                                            personality_prompt, jackpot_win
                                         );
                                         (chosen_symbol, chosen_symbol, chosen_symbol, jackpot_win, prompt)
 
@@ -619,7 +619,7 @@ impl EventHandler for Handler {
                                         result.shuffle(&mut rng);
                                         let prompt = format!(
                                             "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just broke even at a slot machine, getting their {} nuggets(the bet currency) back.",
-                                            get_nuggies_personality_prompt(), bet_amount
+                                            personality_prompt, bet_amount
                                         );
                                         (result[0], result[1], result[2], bet_amount, prompt)
                                     } else {
@@ -630,7 +630,7 @@ impl EventHandler for Handler {
                                         let s3 = *chosen.next().unwrap();
                                         let prompt = format!(
                                             "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just lost their {} nuggets(the bet currency) at a slot machine. They were eaten by a Fox",
-                                            get_nuggies_personality_prompt(), bet_amount
+                                            personality_prompt, bet_amount
                                         );
                                         (s1, s2, s3, 0, prompt)
                                     }
@@ -664,9 +664,8 @@ impl EventHandler for Handler {
                             .and_then(|v| v.as_str())
                             .unwrap_or("random");
 
-                        let data = ctx_clone.data.read().await;
                         let mistral_api_key = data.get::<MistralApiKey>().unwrap().clone();
-                        let personality_prompt = get_nuggies_personality_prompt();
+                        let personality_prompt = data.get::<NuggiesPersonality>().unwrap().clone();
 
                         let funfact_prompt = if topic_option.to_lowercase() == "random" {
                             format!(
@@ -740,18 +739,19 @@ async fn get_or_create_role(ctx: &Context, guild_id: GuildId, role_name: &str) -
     }
 }
 
-fn get_nuggies_personality_prompt() -> &'static str {
-    "You are a Female AI assistant called 'Nuggies'.\
-     You have a somewhat friendly, slightly norse nordic, slightly pagan, sarcastic, quite gothic (NOT EDGY) and somewhat unhinged personality.\
-     dont Roleplay, try to be poetic or ambiguous"
-}
-
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().ok();
     let discord_token = env::var("DISCORD_TOKEN").expect("Expected DISCORD_TOKEN in the environment");
     let mistral_api_key = env::var("MISTRAL_API_KEY").expect("Expected MISTRAL_API_KEY in the environment");
     let tenor_api_key = env::var("TENOR_API_KEY").expect("Expected TENOR_API_KEY in the environment");
+    let nuggies_personality = env::var("NUGGIES_PERSONALITY")
+        .unwrap_or_else(|_| {
+            "You are a Female AI assistant called 'Nuggies'. \
+             You have a somewhat friendly, slightly norse nordic, slightly pagan, sarcastic, \
+             quite gothic (NOT EDGY) and somewhat unhinged personality. \
+             Don't roleplay, try to be poetic or ambiguous".to_string()
+        });
 
     let intents = GatewayIntents::non_privileged()
         | GatewayIntents::MESSAGE_CONTENT
@@ -768,6 +768,7 @@ async fn main() {
         let mut data = client.data.write().await;
         data.insert::<MistralApiKey>(Arc::new(mistral_api_key));
         data.insert::<TenorApiKey>(Arc::new(tenor_api_key));
+        data.insert::<NuggiesPersonality>(nuggies_personality);
         data.insert::<DatabaseKey>(Arc::new(Database::new().await));
     }
 
