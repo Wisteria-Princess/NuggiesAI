@@ -131,7 +131,6 @@ async fn handle_reaction_role(ctx: &Context, reaction: &Reaction, add: bool) {
     }
 }
 
-
 #[async_trait]
 impl EventHandler for Handler {
     async fn ready(&self, _ctx: Context, ready: Ready) {
@@ -187,7 +186,6 @@ impl EventHandler for Handler {
                 .create_application_command(|command| {
                     command.name("slots").description("Spend 5 nuggets for a chance to win big!")
                 })
-                // MODIFIED: Update funfact command registration
                 .create_application_command(|command| {
                     command.name("funfact").description("Get an interesting fun fact about a topic")
                         .create_option(|option| {
@@ -335,13 +333,13 @@ impl EventHandler for Handler {
             println!("[CMD] Triggered 'nuggies' AI response for user '{}' (ID: {}) in channel (ID: {})", msg.author.name, msg.author.id, msg.channel_id);
             let typing = msg.channel_id.start_typing(&ctx.http);
             let data = ctx.data.read().await;
-            let gemini_api_key = data.get::<GeminiApiKey>().expect("Expected GeminiApiKey in TypeMap.").clone();
+            let mistral_api_key = data.get::<MistralApiKey>().expect("Expected MistralApiKey in TypeMap.").clone();
             let personality_prompt = get_nuggies_personality_prompt();
             let modified_prompt = format!(
                 "{}\nRespond to the following message as Nuggies and keep the response at one or 2 sentences:\n\n{}",
                 personality_prompt, &msg.content
             );
-            let response = call_gemini_api(&gemini_api_key, &modified_prompt).await.unwrap_or_else(|_| "My circuits are fried.".to_string());
+            let response = call_mistral_api(&mistral_api_key, &modified_prompt).await.unwrap_or_else(|_| "My circuits are fried.".to_string());
             let _ = typing.map(|t| t.stop());
             let _ = msg.channel_id.say(&ctx.http, &response).await;
         }
@@ -373,13 +371,13 @@ impl EventHandler for Handler {
                         let message_option = command.data.options.iter().find(|opt| opt.name == "message");
                         if let Some(message_text) = message_option.and_then(|opt| opt.value.as_ref().and_then(|v| v.as_str())) {
                             let data = ctx_clone.data.read().await;
-                            let gemini_api_key = data.get::<GeminiApiKey>().unwrap().clone();
+                            let mistral_api_key = data.get::<MistralApiKey>().unwrap().clone();
                             let personality_prompt = get_nuggies_personality_prompt();
                             let prompt = format!(
                                 "{}\nRespond to the following message as Nuggies:\n\n{}",
                                 personality_prompt, message_text
                             );
-                            match call_gemini_api(&gemini_api_key, &prompt).await {
+                            match call_mistral_api(&mistral_api_key, &prompt).await {
                                 Ok(response) => format!("<@{}> asked: {}\n\n{}", user_id.0, message_text, response),
                                 Err(_) => "Sorry, I couldn't get a response from Nuggies right now.".to_string(),
                             }
@@ -389,9 +387,9 @@ impl EventHandler for Handler {
                         let question_option = command.data.options.iter().find(|opt| opt.name == "question");
                         if let Some(question_text) = question_option.and_then(|opt| opt.value.as_ref().and_then(|v| v.as_str())) {
                             let data = ctx_clone.data.read().await;
-                            let gemini_api_key = data.get::<GeminiApiKey>().unwrap().clone();
+                            let mistral_api_key = data.get::<MistralApiKey>().unwrap().clone();
                             let prompt = format!("{}\n\nKeep your answer below 1800 characters.", question_text);
-                            let response = call_gemini_api(&gemini_api_key, &prompt).await.unwrap_or_else(|_| "Sorry, I couldn't get a response right now.".to_string());
+                            let response = call_mistral_api(&mistral_api_key, &prompt).await.unwrap_or_else(|_| "Sorry, I couldn't get a response right now.".to_string());
                             format!("<@{}> asked: {}\n\n{}", user_id.0, question_text, response)
                         } else { "Please provide a question.".to_string() }
                     },
@@ -401,9 +399,9 @@ impl EventHandler for Handler {
 
                         if let (Some(language), Some(text)) = (lang_opt, text_opt) {
                             let data = ctx_clone.data.read().await;
-                            let gemini_api_key = data.get::<GeminiApiKey>().unwrap().clone();
+                            let mistral_api_key = data.get::<MistralApiKey>().unwrap().clone();
                             let prompt = format!("Translate the following text to {} exactly and only output the translated text:\n\n{}", language, text);
-                            call_gemini_api(&gemini_api_key, &prompt).await.unwrap_or_else(|_| "Sorry, I couldn't translate that.".to_string())
+                            call_mistral_api(&mistral_api_key, &prompt).await.unwrap_or_else(|_| "Sorry, I couldn't translate that.".to_string())
                         } else { "Please provide both a language and text.".to_string() }
                     },
                     "fox" => {
@@ -490,7 +488,7 @@ impl EventHandler for Handler {
                         let data = ctx_clone.data.read().await;
                         let db = data.get::<DatabaseKey>().unwrap();
                         let conn = db.pool.get().await.expect("Failed to get DB connection");
-                        let gemini_api_key = data.get::<GeminiApiKey>().unwrap().clone();
+                        let mistral_api_key = data.get::<MistralApiKey>().unwrap().clone();
                         let user_id_i64 = *user_id.as_u64() as i64;
 
                         if let Ok(row) = conn.query_one("SELECT nuggets FROM users WHERE user_id = $1", &[&user_id_i64]).await {
@@ -552,7 +550,7 @@ impl EventHandler for Handler {
                                 let params: &[&(dyn ToSql + Sync)] = &[&new_total, &user_id_i64];
                                 conn.execute("UPDATE users SET nuggets = $1 WHERE user_id = $2", params).await.unwrap();
 
-                                let witty_response = call_gemini_api(&gemini_api_key, &response_prompt)
+                                let witty_response = call_mistral_api(&mistral_api_key, &response_prompt)
                                     .await
                                     .unwrap_or_else(|_| "...".to_string());
 
@@ -568,16 +566,15 @@ impl EventHandler for Handler {
                             "You don't have a nuggetbox yet! Use `/daily` to get your first nuggets.".to_string()
                         }
                     },
-                    // MODIFIED: Implement the updated funfact command logic
                     "funfact" => {
                         let topic_option = command.data.options.iter()
                             .find(|opt| opt.name == "topic")
                             .and_then(|opt| opt.value.as_ref())
                             .and_then(|v| v.as_str())
-                            .unwrap_or("random"); // Failsafe, should not happen due to required=true
+                            .unwrap_or("random");
 
                         let data = ctx_clone.data.read().await;
-                        let gemini_api_key = data.get::<GeminiApiKey>().unwrap().clone();
+                        let mistral_api_key = data.get::<MistralApiKey>().unwrap().clone();
                         let personality_prompt = get_nuggies_personality_prompt();
 
                         let funfact_prompt = if topic_option.to_lowercase() == "random" {
@@ -595,12 +592,11 @@ impl EventHandler for Handler {
                             )
                         };
 
-                        call_gemini_api(&gemini_api_key, &funfact_prompt)
+                        call_mistral_api(&mistral_api_key, &funfact_prompt)
                             .await
                             .unwrap_or_else(|_| "My fact-generating circuits seem to be on the fritz. Ask later.".to_string())
                     },
                     "help" => {
-                        // MODIFIED: Update help message
                         "Here's a list of my commands:\n\n\
                         **/nuggies `[message]`**: Chat with Nuggies AI.\n\
                         **/ask `[question]`**: Ask the AI a question.\n\
@@ -654,7 +650,7 @@ async fn get_or_create_role(ctx: &Context, guild_id: GuildId, role_name: &str) -
 }
 
 fn get_nuggies_personality_prompt() -> &'static str {
-    "You are an Female AI assistant called 'Nuggies'.\
+    "You are a Female AI assistant called 'Nuggies'.\
      You have a somewhat friendly, slightly norse nordic, slightly pagan, sarcastic, quite gothic (NOT EDGY) and somewhat unhinged personality.\
      dont Roleplay"
 }
@@ -663,7 +659,7 @@ fn get_nuggies_personality_prompt() -> &'static str {
 async fn main() {
     dotenv::dotenv().ok();
     let discord_token = env::var("DISCORD_TOKEN").expect("Expected DISCORD_TOKEN in the environment");
-    let gemini_api_key = env::var("GEMINI_API_KEY").expect("Expected GEMINI_API_KEY in the environment");
+    let mistral_api_key = env::var("MISTRAL_API_KEY").expect("Expected MISTRAL_API_KEY in the environment");
     let tenor_api_key = env::var("TENOR_API_KEY").expect("Expected TENOR_API_KEY in the environment");
 
     let intents = GatewayIntents::non_privileged()
@@ -679,7 +675,7 @@ async fn main() {
 
     {
         let mut data = client.data.write().await;
-        data.insert::<GeminiApiKey>(Arc::new(gemini_api_key));
+        data.insert::<MistralApiKey>(Arc::new(mistral_api_key));
         data.insert::<TenorApiKey>(Arc::new(tenor_api_key));
         data.insert::<DatabaseKey>(Arc::new(Database::new().await));
     }
@@ -689,8 +685,8 @@ async fn main() {
     }
 }
 
-struct GeminiApiKey;
-impl serenity::prelude::TypeMapKey for GeminiApiKey {
+struct MistralApiKey;
+impl serenity::prelude::TypeMapKey for MistralApiKey {
     type Value = Arc<String>;
 }
 
@@ -699,15 +695,23 @@ impl serenity::prelude::TypeMapKey for TenorApiKey {
     type Value = Arc<String>;
 }
 
-async fn call_gemini_api(api_key: &str, message: &str) -> Result<String, reqwest::Error> {
+async fn call_mistral_api(api_key: &str, message: &str) -> Result<String, reqwest::Error> {
     let client = HttpClient::new();
-    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
-    let request_body = serde_json::json!({ "contents": [{ "parts": [{ "text": message }] }] });
+    let url = "https://api.mistral.ai/v1/chat/completions";
+    let request_body = serde_json::json!({
+        "model": "mistral-tiny",
+        "messages": [
+            {"role": "user", "content": message}
+        ],
+        "temperature": 0.7,
+        "max_tokens": 2000,
+    });
 
-    println!("[API REQUEST - Gemini] Sending request for message: \"{}\"", message);
+    println!("[API REQUEST - Mistral] Sending request for message: \"{}\"", message);
 
     let response = client.post(url)
-        .header("x-goog-api-key", api_key)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
         .json(&request_body)
         .send()
         .await?;
@@ -716,24 +720,22 @@ async fn call_gemini_api(api_key: &str, message: &str) -> Result<String, reqwest
 
     let response_string = serde_json::to_string(&response_json).unwrap_or_else(|_| "{}".to_string());
     let truncated_response = response_string.chars().take(100).collect::<String>();
-    println!("[API RESPONSE - Gemini] First 100 chars: {}", truncated_response);
+    println!("[API RESPONSE - Mistral] First 100 chars: {}", truncated_response);
 
-    if let Some(candidates) = response_json.get("candidates") {
-        if let Some(text) = candidates
+    if let Some(choices) = response_json.get("choices") {
+        if let Some(content) = choices
             .get(0)
-            .and_then(|c| c.get("content"))
-            .and_then(|c| c.get("parts"))
-            .and_then(|p| p.get(0))
-            .and_then(|p| p.get("text"))
-            .and_then(|t| t.as_str())
+            .and_then(|c| c.get("message"))
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_str())
         {
-            Ok(text.to_string())
+            Ok(content.to_string())
         } else {
-            eprintln!("[ERROR - Gemini API] 'text' field missing in candidate: {}", response_string);
+            eprintln!("[ERROR - Mistral API] 'content' field missing in message: {}", response_string);
             Ok("I couldn't come up with a response.".to_string())
         }
     } else {
-        eprintln!("[ERROR - Gemini API] No candidates found in response: {}", response_string);
+        eprintln!("[ERROR - Mistral API] No choices found in response: {}", response_string);
         Ok("I couldn't come up with a response.".to_string())
     }
 }
