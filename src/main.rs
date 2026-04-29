@@ -747,10 +747,7 @@ async fn main() {
     let tenor_api_key = env::var("TENOR_API_KEY").expect("Expected TENOR_API_KEY in the environment");
     let nuggies_personality = env::var("NUGGIES_PERSONALITY")
         .unwrap_or_else(|_| {
-            "You are a Female AI assistant called 'Nuggies'. \
-             You have a somewhat friendly, slightly norse nordic, slightly pagan, sarcastic, \
-             quite gothic (NOT EDGY) and somewhat unhinged personality. \
-             Don't roleplay, try to be poetic or ambiguous".to_string()
+            "You are a Female AI assistant called 'Nuggies'.".to_string()
         });
 
     let intents = GatewayIntents::non_privileged()
