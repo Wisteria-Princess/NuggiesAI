@@ -152,7 +152,8 @@ impl EventHandler for Handler {
         let patch_notes = format!(
             "**Patch Notes - {}**\n\n\
             - Switched to Mistral Studio API for AI responses\n\
-            - Nuggies personality is now configurable via NUGGIES_PERSONALITY environment variable",
+            - Nuggies personality is now configurable via NUGGIES_PERSONALITY environment variable\n\
+            - Slots now uses static responses for losses and break-even outcomes",
             today_date
         );
 
@@ -581,7 +582,7 @@ impl EventHandler for Handler {
                                     ("🍀", 19, 8), ("💎", 50, 4), ("🦊", 80, 1),
                                 ];
 
-                                let (s1, s2, s3, winnings, response_prompt) = {
+                                let (s1, s2, s3, winnings) = {
                                     let mut rng = rand::thread_rng();
                                     let outcome_roll = rng.gen_range(1..=100);
 
@@ -595,12 +596,7 @@ impl EventHandler for Handler {
                                         let chosen_symbol = *weighted_list.choose(&mut rng).unwrap();
                                         let (_, jackpot_multiplier, _) = symbols.iter().find(|(sym, _, _)| *sym == chosen_symbol).unwrap();
                                         let jackpot_win = bet_amount * jackpot_multiplier;
-                                        let prompt = format!(
-                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just won {} nuggets(the bet currency) at a slot machine.",
-                                            personality_prompt, jackpot_win
-                                        );
-                                        (chosen_symbol, chosen_symbol, chosen_symbol, jackpot_win, prompt)
-
+                                        (chosen_symbol, chosen_symbol, chosen_symbol, jackpot_win)
                                     } else if outcome_roll <= 30 {
                                         let all_symbols: Vec<&str> = symbols.iter().map(|(s, _, _)| *s).collect();
                                         let mut chosen = all_symbols.choose_multiple(&mut rng, 2);
@@ -608,22 +604,14 @@ impl EventHandler for Handler {
                                         let symbol_b = *chosen.next().unwrap();
                                         let mut result = [symbol_a, symbol_a, symbol_b];
                                         result.shuffle(&mut rng);
-                                        let prompt = format!(
-                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just broke even at a slot machine, getting their {} nuggets(the bet currency) back.",
-                                            personality_prompt, bet_amount
-                                        );
-                                        (result[0], result[1], result[2], bet_amount, prompt)
+                                        (result[0], result[1], result[2], bet_amount)
                                     } else {
                                         let all_symbols: Vec<&str> = symbols.iter().map(|(s, _, _)| *s).collect();
                                         let mut chosen = all_symbols.choose_multiple(&mut rng, 3);
                                         let s1 = *chosen.next().unwrap();
                                         let s2 = *chosen.next().unwrap();
                                         let s3 = *chosen.next().unwrap();
-                                        let prompt = format!(
-                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just lost their {} nuggets(the bet currency) at a slot machine. They were eaten by a Fox",
-                                            personality_prompt, bet_amount
-                                        );
-                                        (s1, s2, s3, 0, prompt)
+                                        (s1, s2, s3, 0)
                                     }
                                 };
 
@@ -632,16 +620,23 @@ impl EventHandler for Handler {
                                 let params: &[&(dyn ToSql + Sync)] = &[&new_total, &user_id_i64];
                                 conn.execute("UPDATE users SET nuggets = $1 WHERE user_id = $2", params).await.unwrap();
 
-                                let witty_response = call_mistral_api(&mistral_api_key, &response_prompt)
-                                    .await
-                                    .unwrap_or_else(|_| "...".to_string());
+                                // Only call Mistral API for wins
+                                let response_message = if winnings > bet_amount {
+                                    let prompt = format!(
+                                        "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just won {} nuggets(the bet currency) at a slot machine.",
+                                        personality_prompt, winnings
+                                    );
+                                    call_mistral_api(&mistral_api_key, &prompt).await.unwrap_or_else(|_| "...".to_string())
+                                } else {
+                                    "The Fates are Silent".to_string()
+                                };
 
                                 if winnings > bet_amount {
-                                    format!("{}\n\nYou won {} nuggets!\n{}", display, winnings, witty_response)
+                                    format!("{}\n\nYou won {} nuggets!\n{}", display, winnings, response_message)
                                 } else if winnings == bet_amount {
-                                    format!("{}\n\nYou get your {} nuggets back.\n{}", display, bet_amount, witty_response)
+                                    format!("{}\n\nYou get your {} nuggets back.\n{}", display, bet_amount, response_message)
                                 } else {
-                                    format!("{}\n\n{}", display, witty_response)
+                                    format!("{}\n\n{}", display, response_message)
                                 }
                             }
                         } else {
