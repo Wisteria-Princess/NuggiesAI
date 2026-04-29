@@ -4,7 +4,7 @@ use serenity::{
     model::{
         channel::Message,
         gateway::Ready,
-        id::GuildId,
+        id::{ChannelId, GuildId},
         application::{
             interaction::{Interaction, InteractionResponseType},
             command::{Command, CommandOptionType},
@@ -104,6 +104,11 @@ async fn handle_reaction_role(ctx: &Context, reaction: &Reaction, add: bool) {
             roles_map.get(emoji_name).copied()
         } else if msg.content.contains("role for event notifications") && emoji_name == "danseparty" {
             Some("FC Events")
+        } else if msg.content.starts_with("Who are you?") {
+            let roles_map: HashMap<&str, &str> = [
+                ("dodo", "Stinki"), ("lurkk", "FC Member"), ("flowah", "Fren"),
+            ].iter().cloned().collect();
+            roles_map.get(emoji_name).copied()
         } else {
             None
         };
@@ -135,6 +140,21 @@ async fn handle_reaction_role(ctx: &Context, reaction: &Reaction, add: bool) {
 impl EventHandler for Handler {
     async fn ready(&self, _ctx: Context, ready: Ready) {
         println!("[INFO] Bot is connected as {} (ID: {})", ready.user.name, ready.user.id);
+
+        let patch_channel_id = ChannelId(1412130150325289203);
+        let today_date = Utc::now().with_timezone(&Berlin).format("%Y-%m-%d").to_string();
+
+        let patch_notes = format!(
+            "**Patch Notes - {}**\n\n\
+            - Switched to Mistral Studio API for AI responses",
+            today_date
+        );
+
+        if let Err(e) = patch_channel_id.say(&_ctx.http, &patch_notes).await {
+            eprintln!("[ERROR] Failed to send patch notes to channel {}: {:?}", patch_channel_id, e);
+        } else {
+            println!("[INFO] Successfully sent patch notes to channel {}.", patch_channel_id);
+        }
 
         let commands = Command::set_global_application_commands(&_ctx.http, |commands| {
             commands
@@ -184,7 +204,15 @@ impl EventHandler for Handler {
                     command.name("leaderboard").description("Shows the top nugget holders")
                 })
                 .create_application_command(|command| {
-                    command.name("slots").description("Spend 5 nuggets for a chance to win big!")
+                    command.name("slots").description("Spend nuggets for a chance to win big!")
+                        .create_option(|option| {
+                            option.name("amount")
+                                .description("The amount of nuggets to bet (1-10). Defaults to 5.")
+                                .kind(CommandOptionType::Integer)
+                                .required(false)
+                                .min_int_value(1)
+                                .max_int_value(10)
+                        })
                 })
                 .create_application_command(|command| {
                     command.name("funfact").description("Get an interesting fun fact about a topic")
@@ -319,6 +347,61 @@ impl EventHandler for Handler {
             let _ = msg.delete(&ctx.http).await;
             return;
         }
+        else if msg.author.id.0 == 241614046913101825 && msg.content == "assignrole:verification" {
+            println!("[CMD] Triggered 'assignrole:verification' by user '{}' (ID: {}) in Guild (ID: {:?})", msg.author.name, msg.author.id, guild_id_opt);
+            let guild_id = msg.guild_id.unwrap();
+
+            let emoji_names = ["dodo", "lurkk", "flowah"];
+
+            if get_or_create_role(&ctx, guild_id, "Stinki").await.is_none() {
+                eprintln!("[ERROR] Failed to get or create role: 'Stinki'. Aborting.");
+                return;
+            }
+            if get_or_create_role(&ctx, guild_id, "FC Member").await.is_none() {
+                eprintln!("[ERROR] Failed to get or create role: 'FC Member'. Aborting.");
+                return;
+            }
+
+            let guild_emojis = match guild_id.emojis(&ctx.http).await {
+                Ok(emojis) => emojis,
+                Err(e) => {
+                    eprintln!("[ERROR] Could not fetch emojis for guild (ID: {}): {:?}. Aborting.", guild_id, e);
+                    return;
+                }
+            };
+
+            let mut emojis = Vec::new();
+            for name in &emoji_names {
+                if let Some(emoji) = guild_emojis.iter().find(|e| e.name == *name) {
+                    emojis.push(emoji.clone());
+                } else {
+                    eprintln!("[ERROR] Could not find emoji '{}' on the server (Guild ID: {}). Aborting.", name, guild_id);
+                    return;
+                }
+            }
+
+            let message_content = format!(
+                "Who are you?\n{} Stinki\n{} FC Member\n{} Friend",
+                emojis[0], emojis[1], emojis[2]
+            );
+
+            match msg.channel_id.say(&ctx.http, &message_content).await {
+                Ok(sent_message) => {
+                    println!("[ACTION] Successfully sent verification role message (ID: {}) to channel (ID: {}).", sent_message.id, sent_message.channel_id);
+                    for emoji in emojis {
+                        if let Err(e) = sent_message.react(&ctx.http, emoji).await {
+                            eprintln!("[ERROR] Failed to react to message (ID: {}): {:?}", sent_message.id, e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[ERROR] Failed to send verification role message in channel (ID: {}): {:?}", msg.channel_id, e);
+                }
+            }
+
+            let _ = msg.delete(&ctx.http).await;
+            return;
+        }
 
         let lower_content = msg.content.to_lowercase();
         if lower_content.contains("istanbul") {
@@ -426,7 +509,7 @@ impl EventHandler for Handler {
                             if last_daily == Some(today) {
                                 "You have already claimed your daily nuggets. Please try again tomorrow.".to_string()
                             } else {
-                                let daily_nuggets: i64 = rand::thread_rng().gen_range(1..=15);
+                                let daily_nuggets: i64 = rand::thread_rng().gen_range(1..=25);
                                 let new_total = nuggets + daily_nuggets;
                                 let update_params: &[&(dyn ToSql + Sync)] = &[&new_total, &today, &user_id_i64];
                                 conn.execute("UPDATE users SET nuggets = $1, last_daily = $2 WHERE user_id = $3", update_params).await.unwrap();
@@ -491,21 +574,27 @@ impl EventHandler for Handler {
                         let mistral_api_key = data.get::<MistralApiKey>().unwrap().clone();
                         let user_id_i64 = *user_id.as_u64() as i64;
 
+                        let bet_amount = command.data.options.iter()
+                            .find(|opt| opt.name == "amount")
+                            .and_then(|opt| opt.value.as_ref())
+                            .and_then(|v| v.as_i64())
+                            .unwrap_or(5);
+
                         if let Ok(row) = conn.query_one("SELECT nuggets FROM users WHERE user_id = $1", &[&user_id_i64]).await {
                             let nuggets: i64 = row.get(0);
-                            if nuggets < 5 {
-                                "You don't have enough nuggets to play the slots! You need at least 5.".to_string()
+                            if nuggets < bet_amount {
+                                format!("You don't have enough nuggets to play the slots! You need at least {}, but you only have {}.", bet_amount, nuggets)
                             } else {
                                 let symbols = [
-                                    ("🍒", 10, 10), ("🍊", 25, 8), ("🔔", 40, 6),
-                                    ("🍀", 75, 4), ("💎", 250, 2),
+                                    ("🍒", 3, 20), ("🍊", 6, 16), ("🔔", 10, 12),
+                                    ("🍀", 19, 8), ("💎", 50, 4), ("🦊", 80, 1),
                                 ];
 
                                 let (s1, s2, s3, winnings, response_prompt) = {
                                     let mut rng = rand::thread_rng();
                                     let outcome_roll = rng.gen_range(1..=100);
 
-                                    if outcome_roll <= 5 {
+                                    if outcome_roll <= 10 {
                                         let mut weighted_list = Vec::new();
                                         for (symbol, _, weight) in &symbols {
                                             for _ in 0..*weight {
@@ -513,13 +602,15 @@ impl EventHandler for Handler {
                                             }
                                         }
                                         let chosen_symbol = *weighted_list.choose(&mut rng).unwrap();
-                                        let jackpot_win = symbols.iter().find(|(sym, _, _)| *sym == chosen_symbol).unwrap().1;
+                                        let (_, jackpot_multiplier, _) = symbols.iter().find(|(sym, _, _)| *sym == chosen_symbol).unwrap();
+                                        let jackpot_win = bet_amount * jackpot_multiplier;
                                         let prompt = format!(
                                             "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just won {} nuggets(the bet currency) at a slot machine.",
                                             get_nuggies_personality_prompt(), jackpot_win
                                         );
                                         (chosen_symbol, chosen_symbol, chosen_symbol, jackpot_win, prompt)
-                                    } else if outcome_roll <= 20 {
+
+                                    } else if outcome_roll <= 30 {
                                         let all_symbols: Vec<&str> = symbols.iter().map(|(s, _, _)| *s).collect();
                                         let mut chosen = all_symbols.choose_multiple(&mut rng, 2);
                                         let symbol_a = *chosen.next().unwrap();
@@ -527,10 +618,10 @@ impl EventHandler for Handler {
                                         let mut result = [symbol_a, symbol_a, symbol_b];
                                         result.shuffle(&mut rng);
                                         let prompt = format!(
-                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just broke even at a slot machine, getting their nuggets(the bet currency) back.",
-                                            get_nuggies_personality_prompt()
+                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just broke even at a slot machine, getting their {} nuggets(the bet currency) back.",
+                                            get_nuggies_personality_prompt(), bet_amount
                                         );
-                                        (result[0], result[1], result[2], 5, prompt)
+                                        (result[0], result[1], result[2], bet_amount, prompt)
                                     } else {
                                         let all_symbols: Vec<&str> = symbols.iter().map(|(s, _, _)| *s).collect();
                                         let mut chosen = all_symbols.choose_multiple(&mut rng, 3);
@@ -538,15 +629,15 @@ impl EventHandler for Handler {
                                         let s2 = *chosen.next().unwrap();
                                         let s3 = *chosen.next().unwrap();
                                         let prompt = format!(
-                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just lost their nuggets(the bet currency) at a slot machine.",
-                                            get_nuggies_personality_prompt()
+                                            "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just lost their {} nuggets(the bet currency) at a slot machine. They were eaten by a Fox",
+                                            get_nuggies_personality_prompt(), bet_amount
                                         );
                                         (s1, s2, s3, 0, prompt)
                                     }
                                 };
 
                                 let display = format!("[ {} | {} | {} ]", s1, s2, s3);
-                                let new_total = nuggets - 5 + winnings;
+                                let new_total = nuggets - bet_amount + winnings;
                                 let params: &[&(dyn ToSql + Sync)] = &[&new_total, &user_id_i64];
                                 conn.execute("UPDATE users SET nuggets = $1 WHERE user_id = $2", params).await.unwrap();
 
@@ -554,10 +645,10 @@ impl EventHandler for Handler {
                                     .await
                                     .unwrap_or_else(|_| "...".to_string());
 
-                                if winnings > 5 {
+                                if winnings > bet_amount {
                                     format!("{}\n\nYou won {} nuggets!\n{}", display, winnings, witty_response)
-                                } else if winnings == 5 {
-                                    format!("{}\n\nYou get your 5 nuggets back.\n{}", display, witty_response)
+                                } else if winnings == bet_amount {
+                                    format!("{}\n\nYou get your {} nuggets back.\n{}", display, bet_amount, witty_response)
                                 } else {
                                     format!("{}\n\n{}", display, witty_response)
                                 }
@@ -605,7 +696,7 @@ impl EventHandler for Handler {
                         **/daily**: Claim your daily nuggets.\n\
                         **/nuggetbox**: Check your personal amount of nuggets.\n\
                         **/leaderboard**: Shows the top nugget holders.\n\
-                        **/slots**: Spend 5 nuggets for a chance to win big!\n\
+                        **/slots `[amount]`**: Spend nuggets for a chance to win big! (1-10, defaults to 5).\n\
                         **/funfact `[topic]`**: Get an interesting fun fact about a specific topic (use 'random' for a random topic).\n\
                         **/help**: Shows this help message.".to_string()
                     },
@@ -652,7 +743,7 @@ async fn get_or_create_role(ctx: &Context, guild_id: GuildId, role_name: &str) -
 fn get_nuggies_personality_prompt() -> &'static str {
     "You are a Female AI assistant called 'Nuggies'.\
      You have a somewhat friendly, slightly norse nordic, slightly pagan, sarcastic, quite gothic (NOT EDGY) and somewhat unhinged personality.\
-     dont Roleplay"
+     dont Roleplay, try to be poetic or ambiguous"
 }
 
 #[tokio::main]
@@ -695,19 +786,16 @@ impl serenity::prelude::TypeMapKey for TenorApiKey {
     type Value = Arc<String>;
 }
 
-async fn call_mistral_api(api_key: &str, message: &str) -> Result<String, reqwest::Error> {
+async fn call_mistral_api(api_key: &str, prompt: &str) -> Result<String, reqwest::Error> {
     let client = HttpClient::new();
     let url = "https://api.mistral.ai/v1/chat/completions";
     let request_body = serde_json::json!({
         "model": "mistral-tiny",
-        "messages": [
-            {"role": "user", "content": message}
-        ],
+        "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.7,
-        "max_tokens": 2000,
     });
 
-    println!("[API REQUEST - Mistral] Sending request for message: \"{}\"", message);
+    println!("[API REQUEST - Mistral] Sending request for prompt: \"{}\"", prompt);
 
     let response = client.post(url)
         .header("Authorization", format!("Bearer {}", api_key))
@@ -717,7 +805,6 @@ async fn call_mistral_api(api_key: &str, message: &str) -> Result<String, reqwes
         .await?;
 
     let response_json = response.json::<serde_json::Value>().await?;
-
     let response_string = serde_json::to_string(&response_json).unwrap_or_else(|_| "{}".to_string());
     let truncated_response = response_string.chars().take(100).collect::<String>();
     println!("[API RESPONSE - Mistral] First 100 chars: {}", truncated_response);
@@ -731,7 +818,7 @@ async fn call_mistral_api(api_key: &str, message: &str) -> Result<String, reqwes
         {
             Ok(content.to_string())
         } else {
-            eprintln!("[ERROR - Mistral API] 'content' field missing in message: {}", response_string);
+            eprintln!("[ERROR - Mistral API] 'content' field missing in response: {}", response_string);
             Ok("I couldn't come up with a response.".to_string())
         }
     } else {
