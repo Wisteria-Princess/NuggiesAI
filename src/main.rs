@@ -221,15 +221,6 @@ impl EventHandler for Handler {
                         })
                 })
                 .create_application_command(|command| {
-                    command.name("funfact").description("Get an interesting fun fact about a topic")
-                        .create_option(|option| {
-                            option.name("topic")
-                                .description("The topic for the fun fact (or 'random' for any topic)")
-                                .kind(CommandOptionType::String)
-                                .required(true)
-                        })
-                })
-                .create_application_command(|command| {
                     command.name("help").description("Shows a list of all available commands")
                 })
         })
@@ -657,35 +648,6 @@ impl EventHandler for Handler {
                             "You don't have a nuggetbox yet! Use `/daily` to get your first nuggets.".to_string()
                         }
                     },
-                    "funfact" => {
-                        let topic_option = command.data.options.iter()
-                            .find(|opt| opt.name == "topic")
-                            .and_then(|opt| opt.value.as_ref())
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("random");
-
-                        let mistral_api_key = data.get::<MistralApiKey>().unwrap().clone();
-                        let personality_prompt = data.get::<NuggiesPersonality>().unwrap().clone();
-
-                        let funfact_prompt = if topic_option.to_lowercase() == "random" {
-                            format!(
-                                "{}\n\nState a single random semi-interesting to very interesting fun fact with a maximum of 1800 symbols. \
-                                The topic can be from alternative subculture and music, history before 1800 (like ancient Rome, Vikings, the Byzantine Empire, the Ottoman Empire, feudal Japan, or medieval Europe), \
-                                geography, linguistics (primarily Indo-European languages, but Japanese, Chinese, or Korean are also great), physics, or even contemporary subjects. \
-                                Feel free to choose any topic, but just stick to one fact per response.",
-                                personality_prompt
-                            )
-                        } else {
-                            format!(
-                                "{}\n\nState a single, semi-interesting to very interesting fun fact about {}. Keep the fact concise and under 1800 characters.",
-                                personality_prompt, topic_option
-                            )
-                        };
-
-                        call_mistral_api(&mistral_api_key, &funfact_prompt)
-                            .await
-                            .unwrap_or_else(|_| "My fact-generating circuits seem to be on the fritz. Ask later.".to_string())
-                    },
                     "help" => {
                         "Here's a list of my commands:\n\n\
                         **/nuggies `[message]`**: Chat with Nuggies AI.\n\
@@ -696,7 +658,6 @@ impl EventHandler for Handler {
                         **/nuggetbox**: Check your personal amount of nuggets.\n\
                         **/leaderboard**: Shows the top nugget holders.\n\
                         **/slots `[amount]`**: Spend nuggets for a chance to win big! (1-10, defaults to 5).\n\
-                        **/funfact `[topic]`**: Get an interesting fun fact about a specific topic (use 'random' for a random topic).\n\
                         **/help**: Shows this help message.".to_string()
                     },
                     _ => "Unknown command.".to_string(),
