@@ -22,7 +22,7 @@ The official repository can be found at: [https://github.com/Wisteria-Princess/N
 - `/fox`: Fetches a random fox GIF from Tenor.
 - `/daily`: Claim between 1 and 15 "nuggets" once per day.
 - `/nuggetbox`: Check your current balance of nuggets.
-- `/slots`: Spend 5 nuggets to play the slots for a chance to win big! Features witty responses from Nuggies and can be used as long as you have the funds.
+- `/slots`: Spend 5 or a Custom Number (1-10) nuggets to play the slots for a chance to win big! Features witty responses from Nuggies and can be used as long as you have the funds.
 
 ## Technologies Used
 
@@ -32,5 +32,5 @@ The official repository can be found at: [https://github.com/Wisteria-Princess/N
 - **Database**: [PostgreSQL](https://www.postgresql.org/)
 - **Database Provider**: [Supabase](https://supabase.com/)
 - **HTTP Client**: [Reqwest](https://docs.rs/reqwest/latest/reqwest/)
-- **AI Model**: Google Gemini API
+- **AI Model**: Mistral Studio API
 - **GIFs**: Tenor API
