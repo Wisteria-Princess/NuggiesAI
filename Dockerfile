@@ -21,8 +21,5 @@ RUN apt-get update && apt-get install -y libssl3 curl && rm -rf /var/lib/apt/lis
 # Copy the compiled binary from the builder stage
 COPY --from=builder /usr/src/app/target/release/discord-gemini-bot /usr/local/bin/discord-gemini-bot
 
-# Copy any assets your bot needs
-COPY constantinople.png .
-
 # Set the command to run your bot when the container starts
 CMD ["/usr/local/bin/discord-gemini-bot"]
