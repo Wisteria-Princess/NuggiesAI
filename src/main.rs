@@ -4,13 +4,14 @@ use serenity::{
     model::{
         channel::Message,
         gateway::Ready,
-        id::{ChannelId, GuildId},
+        id::{ChannelId, GuildId, UserId},
         application::{
             interaction::{Interaction, InteractionResponseType},
             command::{Command, CommandOptionType},
         },
         guild::Role,
         channel::Reaction,
+        user::User,
     },
     prelude::GatewayIntents,
 };
@@ -151,6 +152,7 @@ impl EventHandler for Handler {
 
         let patch_notes = format!(
             "**Patch Notes - {}**\n\n\
+            - Added `/gift` command to send nuggies to other users\n\
             - Switched to Mistral Studio API for AI responses\n\
             - Nuggies personality is now configurable via NUGGIES_PERSONALITY environment variable\n\
             - Slots now uses static responses for losses and break-even outcomes",
@@ -219,6 +221,22 @@ impl EventHandler for Handler {
                                 .required(false)
                                 .min_int_value(1)
                                 .max_int_value(10)
+                        })
+                })
+                .create_application_command(|command| {
+                    command.name("gift").description("Gift nuggies to another user")
+                        .create_option(|option| {
+                            option.name("amount")
+                                .description("The amount of nuggies to gift")
+                                .kind(CommandOptionType::Integer)
+                                .required(true)
+                                .min_int_value(1)
+                        })
+                        .create_option(|option| {
+                            option.name("user")
+                                .description("The user to gift nuggies to")
+                                .kind(CommandOptionType::User)
+                                .required(true)
                         })
                 })
                 .create_application_command(|command| {
@@ -620,7 +638,6 @@ impl EventHandler for Handler {
                                 let params: &[&(dyn ToSql + Sync)] = &[&new_total, &user_id_i64];
                                 conn.execute("UPDATE users SET nuggets = $1 WHERE user_id = $2", params).await.unwrap();
 
-                                // Only call Mistral API for wins
                                 let response_message = if winnings > bet_amount {
                                     let prompt = format!(
                                         "{}\nAs Nuggies, write a witty and sarcastic short one-liner for a user who just won {} nuggets(the bet currency) at a slot machine.",
@@ -643,6 +660,63 @@ impl EventHandler for Handler {
                             "You don't have a nuggetbox yet! Use `/daily` to get your first nuggets.".to_string()
                         }
                     },
+                    "gift" => {
+                        let db = data.get::<DatabaseKey>().unwrap();
+                        let conn = db.pool.get().await.expect("Failed to get DB connection");
+                        let user_id_i64 = *user_id.as_u64() as i64;
+                        
+                        let amount_opt = command.data.options.iter()
+                            .find(|opt| opt.name == "amount")
+                            .and_then(|opt| opt.value.as_ref().and_then(|v| v.as_i64()));
+
+                        let target_user_id_opt = command.data.options.iter()
+                            .find(|opt| opt.name == "user")
+                            .and_then(|opt| opt.value.as_ref())
+                            .and_then(|v| v.as_object())
+                            .and_then(|obj| obj.get("id"))
+                            .and_then(|id| id.as_u64());
+
+                        if let (Some(amount), Some(target_user_id)) = (amount_opt, target_user_id_opt) {
+                            if amount <= 0 {
+                                "You must gift at least 1 nugget.".to_string()
+                            } else {
+                                let target_user_id_i64 = target_user_id as i64;
+                                
+                                let gifter_row = conn.query_one("SELECT nuggets FROM users WHERE user_id = $1", &[&user_id_i64]).await;
+
+                                match gifter_row {
+                                    Ok(gifter_row) => {
+                                        let gifter_nuggets: i64 = gifter_row.get(0);
+                                        if gifter_nuggets < amount {
+                                            format!("You don't have enough nuggets to gift! You have {} but tried to gift {}.", gifter_nuggets, amount)
+                                        } else {
+                                            let new_gifter_total = gifter_nuggets - amount;
+                                            conn.execute("UPDATE users SET nuggets = $1 WHERE user_id = $2", &[&new_gifter_total, &user_id_i64]).await.unwrap();
+                                            
+                                            let target_row = conn.query_one("SELECT nuggets FROM users WHERE user_id = $1", &[&target_user_id_i64]).await;
+                                            match target_row {
+                                                Ok(target_row) => {
+                                                    let target_nuggets: i64 = target_row.get(0);
+                                                    let new_target_total = target_nuggets + amount;
+                                                    conn.execute("UPDATE users SET nuggets = $1 WHERE user_id = $2", &[&new_target_total, &target_user_id_i64]).await.unwrap();
+                                                },
+                                                Err(_) => {
+                                                    conn.execute("INSERT INTO users (user_id, nuggets) VALUES ($1, $2)", &[&target_user_id_i64, &amount]).await.unwrap();
+                                                }
+                                            }
+
+                                            format!("You gifted {} nuggets to <@{}>!", amount, target_user_id)
+                                        }
+                                    },
+                                    Err(_) => {
+                                        "You don't have a nuggetbox yet! Use `/daily` to get your first nuggets.".to_string()
+                                    }
+                                }
+                            }
+                        } else {
+                            "Please provide both an amount and a user to gift nuggies to.".to_string()
+                        }
+                    },
                     "help" => {
                         "Here's a list of my commands:\n\n\
                         **/nuggies `[message]`**: Chat with Nuggies AI.\n\
@@ -653,6 +727,7 @@ impl EventHandler for Handler {
                         **/nuggetbox**: Check your personal amount of nuggets.\n\
                         **/leaderboard**: Shows the top nugget holders.\n\
                         **/slots `[amount]`**: Spend nuggets for a chance to win big! (1-10, defaults to 5).\n\
+                        **/gift `[amount]` `[@user]`**: Gift nuggies to another user.\n\
                         **/help**: Shows this help message.".to_string()
                     },
                     _ => "Unknown command.".to_string(),
