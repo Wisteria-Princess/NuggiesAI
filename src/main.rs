@@ -71,6 +71,17 @@ impl serenity::prelude::TypeMapKey for NuggiesPersonality {
     type Value = String;
 }
 
+// Helper function to ensure we never hit Discord's 2000 character limit
+fn safe_truncate(content: String) -> String {
+    if content.chars().count() > 2000 {
+        let mut truncated: String = content.chars().take(1997).collect();
+        truncated.push_str("...");
+        truncated
+    } else {
+        content
+    }
+}
+
 async fn handle_reaction_role(ctx: &Context, reaction: &Reaction, add: bool) {
     if reaction.user(&ctx.http).await.map_or(true, |u| u.bot) {
         return;
@@ -440,7 +451,10 @@ impl EventHandler for Handler {
             );
             let response = call_mistral_api(&mistral_api_key, &modified_prompt).await.unwrap_or_else(|_| "My circuits are fried.".to_string());
             let _ = typing.map(|t| t.stop());
-            let _ = msg.channel_id.say(&ctx.http, &response).await;
+            
+            // FIX: Truncate response if it's too long for a normal message
+            let final_content = safe_truncate(response);
+            let _ = msg.channel_id.say(&ctx.http, &final_content).await;
         }
     }
 
@@ -733,8 +747,11 @@ impl EventHandler for Handler {
                     _ => "Unknown command.".to_string(),
                 };
 
+                // FIX: Truncate response_content to 2000 chars before editing the interaction
+                let final_response = safe_truncate(response_content);
+
                 if let Err(e) = command.edit_original_interaction_response(&ctx_clone.http, |response| {
-                    response.content(response_content)
+                    response.content(final_response)
                 }).await {
                     eprintln!("[ERROR] Could not edit interaction response: {:?}", e);
                 }
