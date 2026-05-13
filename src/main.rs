@@ -441,7 +441,6 @@ impl EventHandler for Handler {
             let response = call_mistral_api(&mistral_api_key, &modified_prompt).await.unwrap_or_else(|_| "My circuits are fried.".to_string());
             let _ = typing.map(|t| t.stop());
             
-            // Safety Truncation for normal messages
             let mut final_response = response;
             if final_response.len() > 2000 {
                 final_response.truncate(1990);
@@ -494,7 +493,7 @@ impl EventHandler for Handler {
                         let question_option = command.data.options.iter().find(|opt| opt.name == "question");
                         if let Some(question_text) = question_option.and_then(|opt| opt.value.as_ref().and_then(|v| v.as_str())) {
                             let mistral_api_key = data.get::<MistralApiKey>().unwrap().clone();
-                            let prompt = format!("{}\n\nKeep your answer below 1800 characters.", question_text);
+                            let prompt = format!("{}\n\nKeep your response short, meaningful and concise.", question_text);
                             let response = call_mistral_api(&mistral_api_key, &prompt).await.unwrap_or_else(|_| "Sorry, I couldn't get a response right now.".to_string());
                             format!("<@{}> asked: {}\n\n{}", user_id.0, question_text, response)
                         } else { "Please provide a question.".to_string() }
